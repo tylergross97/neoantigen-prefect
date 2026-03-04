@@ -55,11 +55,25 @@ class SeqeraClient:
     # Dataset API
     # ------------------------------------------------------------------
 
+    def _get_dataset_id_by_name(self, name: str) -> str | None:
+        """Return the dataset ID for the given name, or None if not found."""
+        resp = httpx.get(
+            self._workspace_url("/datasets"),
+            headers=self._headers(),
+            timeout=self._timeout,
+        )
+        resp.raise_for_status()
+        for ds in resp.json().get("datasets", []):
+            if ds["name"] == name:
+                return str(ds["id"])
+        return None
+
     def create_dataset(self, name: str, description: str = "") -> str:
         """
         Create an empty dataset and return its ID.
 
         POST /workspaces/{id}/datasets
+        If a dataset with this name already exists (409), return its existing ID.
         """
         resp = httpx.post(
             self._workspace_url("/datasets"),
@@ -67,6 +81,10 @@ class SeqeraClient:
             json={"name": name, "description": description},
             timeout=self._timeout,
         )
+        if resp.status_code == 409:
+            existing_id = self._get_dataset_id_by_name(name)
+            if existing_id:
+                return existing_id
         resp.raise_for_status()
         return str(resp.json()["dataset"]["id"])
 
