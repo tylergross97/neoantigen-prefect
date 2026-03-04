@@ -126,8 +126,8 @@ class NeoantigenInputs:
 
     def __post_init__(self) -> None:
         if not self.run_tag:
-            date = datetime.utcnow().strftime("%Y%m%d")
-            self.run_tag = f"{self.patient_id}-{date}"
+            ts = datetime.utcnow().strftime("%Y%m%d-%H%M")
+            self.run_tag = f"{self.patient_id}-{ts}"
 
 
 # ---------------------------------------------------------------------------

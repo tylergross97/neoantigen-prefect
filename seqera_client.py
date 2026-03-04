@@ -209,7 +209,11 @@ class SeqeraClient:
             json={"launch": launch_body},
             timeout=self._timeout,
         )
-        resp.raise_for_status()
+        if not resp.is_success:
+            raise RuntimeError(
+                f"Launch failed {resp.status_code}: {resp.text}\n"
+                f"Body sent: {json.dumps({'launch': launch_body}, indent=2)}"
+            )
         return str(resp.json()["workflowId"])
 
     # ------------------------------------------------------------------
