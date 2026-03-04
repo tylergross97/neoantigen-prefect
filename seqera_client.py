@@ -157,6 +157,7 @@ class SeqeraClient:
         config_profiles: list[str] | None = None,
         resume: bool = False,
         session_id: str | None = None,
+        pre_run_script: str | None = None,
     ) -> str:
         """
         Launch a pipeline and return the workflow ID (run ID).
@@ -201,6 +202,8 @@ class SeqeraClient:
             launch_body["credentialsId"] = credentials_id
         if session_id:
             launch_body["sessionId"] = session_id
+        if pre_run_script:
+            launch_body["preRunScript"] = pre_run_script
 
         resp = httpx.post(
             self._url("/workflow/launch"),

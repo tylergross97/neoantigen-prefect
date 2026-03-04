@@ -80,6 +80,8 @@ PURECN_PARAMS: dict = {
 
 # ---------------------------------------------------------------------------
 
+import textwrap
+
 from prefect import flow, get_run_logger
 
 import config as cfg_module
@@ -162,37 +164,41 @@ def neoantigen_flow(
     def outdir(step: str) -> str:
         return seqera_cfg.outdir(pid, step)
 
+    def _upload_script(csv_content: str, s3_path: str) -> str:
+        """
+        Return a bash pre-run script that writes csv_content to s3_path.
+
+        Runs on the Seqera Compute head node (which has AWS credentials) before
+        Nextflow starts. Using a single-quoted heredoc prevents any shell
+        expansion of the CSV content.
+        """
+        # Escape any occurrence of the sentinel in the content (shouldn't happen)
+        safe = csv_content.replace("SAMPLESHEET_EOF", "SAMPLESHEET_EO_F")
+        return textwrap.dedent(f"""\
+            #!/bin/bash
+            set -euo pipefail
+            aws s3 cp - '{s3_path}' << 'SAMPLESHEET_EOF'
+            {safe}SAMPLESHEET_EOF
+        """)
+
+    ss_base = f"{seqera_cfg.base_outdir}/{pid}/samplesheets"
+    wes_s3      = f"{ss_base}/wes.csv"
+    hla_s3      = f"{ss_base}/hlatyping.csv"
+    rnaseq_s3   = f"{ss_base}/rnaseq.csv"
+
     logger.info(f"Starting neoantigen pipeline for patient={pid}, tag={tag}")
 
-    # ── Step 0: Upload input samplesheets as Seqera Datasets ───────────────
-    # These tasks run in parallel (both .submit() calls fire immediately).
-
-    wes_dataset_future = create_and_upload_dataset.submit(
-        cfg=seqera_cfg,
-        name=f"{pid}-wes-input-{tag}",
-        csv_content=inputs.wes_samplesheet_csv,
-    )
-    hlatyping_dataset_future = create_and_upload_dataset.submit(
-        cfg=seqera_cfg,
-        name=f"{pid}-hlatyping-input-{tag}",
-        csv_content=inputs.hlatyping_samplesheet_csv,
-    )
-    rnaseq_dataset_future = create_and_upload_dataset.submit(
-        cfg=seqera_cfg,
-        name=f"{pid}-rnaseq-input-{tag}",
-        csv_content=inputs.rnaseq_samplesheet_csv,
-    )
-
-    # Resolve dataset URIs before building pipeline params
-    wes_dataset_uri = wes_dataset_future.result()
-    hlatyping_dataset_uri = hlatyping_dataset_future.result()
-    rnaseq_dataset_uri = rnaseq_dataset_future.result()
-
-    # ── Steps 1, 2, 3: Parallel launch (all depend only on dataset upload) ─
+    # ── Steps 1, 2, 3: Parallel launch ─────────────────────────────────────
+    # Samplesheets are written to S3 via pre-run scripts (bash heredocs that
+    # run on the compute head node before Nextflow starts). This avoids the
+    # nf-schema ^\S+\.csv$ validation failure that occurs with dataset:// or
+    # Seqera API HTTPS URLs.
 
     # Step 1 — nf-core/sarek: somatic variant calling
     # Steps 1-3 are staggered by 5s to avoid Seqera API concurrency errors
     # when multiple launches hit the same compute environment simultaneously.
+    # Pre-run scripts upload the samplesheet CSV to S3 before Nextflow starts,
+    # so --input can be a plain S3 path that passes nf-schema validation.
     sarek_future = run_pipeline.submit(
         cfg=seqera_cfg,
         pipeline_id=pipeline_ids.sarek,
@@ -200,9 +206,10 @@ def neoantigen_flow(
         run_tag=tag,
         params={
             **SAREK_PARAMS,
-            "input": wes_dataset_uri,
+            "input": wes_s3,
             "outdir": outdir("sarek"),
         },
+        pre_run_script=_upload_script(inputs.wes_samplesheet_csv, wes_s3),
         launch_delay_seconds=0,
     )
 
@@ -214,9 +221,10 @@ def neoantigen_flow(
         run_tag=tag,
         params={
             **HLATYPING_PARAMS,
-            "input": hlatyping_dataset_uri,
+            "input": hla_s3,
             "outdir": outdir("hlatyping"),
         },
+        pre_run_script=_upload_script(inputs.hlatyping_samplesheet_csv, hla_s3),
         launch_delay_seconds=5,
     )
 
@@ -228,9 +236,10 @@ def neoantigen_flow(
         run_tag=tag,
         params={
             **RNASEQ_PARAMS,
-            "input": rnaseq_dataset_uri,
+            "input": rnaseq_s3,
             "outdir": outdir("rnaseq"),
         },
+        pre_run_script=_upload_script(inputs.rnaseq_samplesheet_csv, rnaseq_s3),
         launch_delay_seconds=10,
     )
 

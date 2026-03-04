@@ -89,6 +89,7 @@ def run_pipeline(
     config_profiles: list[str] | None = None,
     resume: bool = False,
     launch_delay_seconds: int = 0,
+    pre_run_script: str | None = None,
 ) -> str:
     """
     Launch a Seqera Platform pipeline and block until it completes.
@@ -128,6 +129,7 @@ def run_pipeline(
         credentials_id=cfg.credentials_id,
         config_profiles=config_profiles,
         resume=resume,
+        pre_run_script=pre_run_script,
     )
 
     seqera_url = (
