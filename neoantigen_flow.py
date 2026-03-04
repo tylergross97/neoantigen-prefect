@@ -229,10 +229,7 @@ def neoantigen_flow(
             "outdir": outdir("hlatyping"),
         },
         pre_run_script=_upload_script(inputs.hlatyping_samplesheet_csv, hla_s3),
-        # YARA_MAPPER (seqan-based) crashes with Seqera Fusion: seqan's async I/O
-        # (mmap/resize) is incompatible with FUSE semantics. Disabling Fusion
-        # for the whole pipeline forces standard S3 staging (copy in/out) instead.
-        config_text_extra="fusion {\n    enabled = false\n}\n",
+        revision="2.2.0",  # 2.0.0 YARA_MAPPER crashes with Seqera Fusion (seqan async I/O bug)
 
         launch_delay_seconds=5,
     )

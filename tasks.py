@@ -129,20 +129,33 @@ def run_pipeline(
     else:
         logger.info(f"Launching '{pipeline_name}' as run '{run_name}' (pipeline_id={pipeline_id})")
 
-    workflow_id = client.launch_pipeline(
-        pipeline_id=pipeline_id,
-        compute_env_id=cfg.compute_env_id,
-        work_dir=cfg.work_dir,
-        params=params,
-        run_name=run_name,
-        credentials_id=cfg.credentials_id,
-        config_profiles=config_profiles,
-        resume=resume,
-        session_id=prev_session_id,
-        pre_run_script=pre_run_script,
-        revision=revision,
-        config_text_extra=config_text_extra,
-    )
+    def _launch(use_resume: bool, session_id: str | None) -> str:
+        return client.launch_pipeline(
+            pipeline_id=pipeline_id,
+            compute_env_id=cfg.compute_env_id,
+            work_dir=cfg.work_dir,
+            params=params,
+            run_name=run_name,
+            credentials_id=cfg.credentials_id,
+            config_profiles=config_profiles,
+            resume=use_resume,
+            session_id=session_id,
+            pre_run_script=pre_run_script,
+            revision=revision,
+            config_text_extra=config_text_extra,
+        )
+
+    try:
+        workflow_id = _launch(resume, prev_session_id)
+    except RuntimeError as exc:
+        if resume and "400" in str(exc):
+            logger.warning(
+                f"Resume launch rejected by Seqera (400) — falling back to fresh start"
+            )
+            _LAST_SESSION_IDS.pop(pipeline_name, None)
+            workflow_id = _launch(False, None)
+        else:
+            raise
 
     seqera_url = (
         f"https://cloud.seqera.io/orgs/tyler-gross-org-4405/workspaces/"
