@@ -191,6 +191,8 @@ def neoantigen_flow(
     # ── Steps 1, 2, 3: Parallel launch (all depend only on dataset upload) ─
 
     # Step 1 — nf-core/sarek: somatic variant calling
+    # Steps 1-3 are staggered by 5s to avoid Seqera API concurrency errors
+    # when multiple launches hit the same compute environment simultaneously.
     sarek_future = run_pipeline.submit(
         cfg=seqera_cfg,
         pipeline_id=pipeline_ids.sarek,
@@ -201,6 +203,7 @@ def neoantigen_flow(
             "input": wes_dataset_uri,
             "outdir": outdir("sarek"),
         },
+        launch_delay_seconds=0,
     )
 
     # Step 2 — nf-core/hlatyping: HLA class I typing from normal WES reads
@@ -214,6 +217,7 @@ def neoantigen_flow(
             "input": hlatyping_dataset_uri,
             "outdir": outdir("hlatyping"),
         },
+        launch_delay_seconds=5,
     )
 
     # Step 3 — nf-core/rnaseq: transcript-level quantification
@@ -227,6 +231,7 @@ def neoantigen_flow(
             "input": rnaseq_dataset_uri,
             "outdir": outdir("rnaseq"),
         },
+        launch_delay_seconds=10,
     )
 
     # ── Step 4: vcf-expression-annotator (waits for sarek + rnaseq) ────────

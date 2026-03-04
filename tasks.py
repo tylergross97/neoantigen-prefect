@@ -88,6 +88,7 @@ def run_pipeline(
     params: dict[str, Any],
     config_profiles: list[str] | None = None,
     resume: bool = False,
+    launch_delay_seconds: int = 0,
 ) -> str:
     """
     Launch a Seqera Platform pipeline and block until it completes.
@@ -111,6 +112,9 @@ def run_pipeline(
         workspace_id=cfg.workspace_id,
         api_url=cfg.api_url,
     )
+
+    if launch_delay_seconds:
+        time.sleep(launch_delay_seconds)
 
     run_name = _safe_run_name(pipeline_name, run_tag)
     logger.info(f"Launching '{pipeline_name}' as run '{run_name}' (pipeline_id={pipeline_id})")
