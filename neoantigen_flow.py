@@ -80,8 +80,6 @@ PURECN_PARAMS: dict = {
 
 # ---------------------------------------------------------------------------
 
-import textwrap
-
 from prefect import flow, get_run_logger
 
 import config as cfg_module
@@ -174,12 +172,14 @@ def neoantigen_flow(
         """
         # Escape any occurrence of the sentinel in the content (shouldn't happen)
         safe = csv_content.replace("SAMPLESHEET_EOF", "SAMPLESHEET_EO_F")
-        return textwrap.dedent(f"""\
-            #!/bin/bash
-            set -euo pipefail
-            aws s3 cp - '{s3_path}' << 'SAMPLESHEET_EOF'
-            {safe}SAMPLESHEET_EOF
-        """)
+        # Do NOT use `set -u` — the pre-run script is sourced by nf-launcher.sh
+        # and `-u` would cause it to fail on unbound vars like TOWER_CONFIG_BASE64.
+        # Use a plain string (no textwrap.dedent) so indentation is exact.
+        return (
+            "aws s3 cp - '" + s3_path + "' << 'SAMPLESHEET_EOF'\n"
+            + safe.rstrip("\n") + "\n"
+            + "SAMPLESHEET_EOF\n"
+        )
 
     ss_base = f"{seqera_cfg.base_outdir}/{pid}/samplesheets"
     wes_s3      = f"{ss_base}/wes.csv"
