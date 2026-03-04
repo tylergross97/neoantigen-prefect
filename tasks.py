@@ -64,9 +64,9 @@ def create_and_upload_dataset(
     )
     dataset_id = client.create_dataset(name, description="Auto-created by Prefect")
     client.upload_dataset(dataset_id, csv_content)
-    uri = client.dataset_uri(name)
-    logger.info(f"Dataset '{name}' created (id={dataset_id}) → {uri}")
-    return uri
+    url = client.get_dataset_download_url(dataset_id)
+    logger.info(f"Dataset '{name}' created (id={dataset_id}) → {url}")
+    return url
 
 
 # ---------------------------------------------------------------------------

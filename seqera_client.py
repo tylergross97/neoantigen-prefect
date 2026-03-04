@@ -85,9 +85,27 @@ class SeqeraClient:
         )
         resp.raise_for_status()
 
-    def dataset_uri(self, dataset_name: str) -> str:
-        """Return the dataset:// URI for use as a pipeline --input param."""
-        return f"dataset://{self.workspace_id}/{dataset_name}"
+    def get_dataset_download_url(self, dataset_id: str) -> str:
+        """
+        Return the HTTPS download URL for the latest version of a dataset.
+
+        GET /workspaces/{id}/datasets/{datasetId}/versions?mimeType=text/csv
+
+        Returns a URL ending in .csv that:
+          - passes nf-schema's ^\S+\.csv$ pattern validation
+          - is accessible by the nf-tower Nextflow plugin (handles auth automatically)
+        """
+        resp = httpx.get(
+            self._workspace_url(f"/datasets/{dataset_id}/versions"),
+            params={"mimeType": "text/csv"},
+            headers=self._headers(),
+            timeout=self._timeout,
+        )
+        resp.raise_for_status()
+        versions = resp.json().get("versions", [])
+        if not versions:
+            raise RuntimeError(f"No versions found for dataset {dataset_id}")
+        return versions[-1]["url"]
 
     # ------------------------------------------------------------------
     # Pipeline launch API
@@ -137,9 +155,10 @@ class SeqeraClient:
         revision = lc.get("revision") or ""
         config_text = lc.get("configText") or ""
 
-        # Use caller-supplied profiles if provided; otherwise keep whatever the
-        # pipeline template has saved.
-        profiles = config_profiles if config_profiles is not None else (lc.get("configProfiles") or [])
+        # Use caller-supplied profiles if provided; otherwise use empty list.
+        # We deliberately do NOT inherit configProfiles from the launchpad template
+        # (which often contains "test") — our params already specify real data.
+        profiles = config_profiles if config_profiles is not None else []
 
         # Step 2: build the launch body.
         # paramsText is a JSON string (not a nested object).
