@@ -159,6 +159,7 @@ class SeqeraClient:
         session_id: str | None = None,
         pre_run_script: str | None = None,
         revision: str | None = None,
+        config_text_extra: str | None = None,
     ) -> str:
         """
         Launch a pipeline and return the workflow ID (run ID).
@@ -174,6 +175,8 @@ class SeqeraClient:
         launch_id = lc["id"]
         revision = revision or lc.get("revision") or ""
         config_text = lc.get("configText") or ""
+        if config_text_extra:
+            config_text = config_text + "\n" + config_text_extra
 
         # Use caller-supplied profiles if provided; otherwise use empty list.
         # We deliberately do NOT inherit configProfiles from the launchpad template

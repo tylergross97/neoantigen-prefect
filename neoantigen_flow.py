@@ -80,6 +80,8 @@ PURECN_PARAMS: dict = {
 
 # ---------------------------------------------------------------------------
 
+import textwrap
+
 from prefect import flow, get_run_logger
 
 import config as cfg_module
@@ -226,6 +228,16 @@ def neoantigen_flow(
             "outdir": outdir("hlatyping"),
         },
         pre_run_script=_upload_script(inputs.hlatyping_samplesheet_csv, hla_s3),
+        # YARA_MAPPER crashes with Seqera Fusion (seqan async I/O hits a Fusion
+        # tmp-file corruption). Setting scratch=true stages inputs to local disk
+        # and runs the process there, bypassing the Fusion virtual FS.
+        config_text_extra=textwrap.dedent("""\
+            process {
+                withName: 'NFCORE_HLATYPING:HLATYPING:YARA_MAPPER' {
+                    scratch = true
+                }
+            }
+        """),
         launch_delay_seconds=5,
     )
 
