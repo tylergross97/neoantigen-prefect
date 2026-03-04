@@ -1,0 +1,30 @@
+# Secrets — never commit
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# uv
+uv.lock
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Prefect
+.prefect/
+
+# Claude Code
+.claude/

@@ -1,0 +1,3 @@
+patient,sex,status,sample,lane,fastq_1,fastq_2
+PID262622,XX,0,PID262622_N,1,s3://1000g-data-link-test-eu-west-1-iwcyt6phg/pid_262622/PID262622/normal_wes/262622~v2.0.1.10.0~germlineWES.R1.fastq.gz,s3://1000g-data-link-test-eu-west-1-iwcyt6phg/pid_262622/PID262622/normal_wes/262622~v2.0.1.10.0~germlineWES.R2.fastq.gz
+PID262622,XX,1,PID262622_T,1,s3://1000g-data-link-test-eu-west-1-iwcyt6phg/pid_262622/PID262622/tumor_wes/ORIGINATOR/262622~085-R~ORIGINATOR~v2.0.2.51.0~WES.R1.fastq.gz,s3://1000g-data-link-test-eu-west-1-iwcyt6phg/pid_262622/PID262622/tumor_wes/ORIGINATOR/262622~085-R~ORIGINATOR~v2.0.2.51.0~WES.R2.fastq.gz
