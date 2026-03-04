@@ -158,6 +158,7 @@ class SeqeraClient:
         resume: bool = False,
         session_id: str | None = None,
         pre_run_script: str | None = None,
+        revision: str | None = None,
     ) -> str:
         """
         Launch a pipeline and return the workflow ID (run ID).
@@ -171,7 +172,7 @@ class SeqeraClient:
         # Step 1: fetch the pipeline's saved launch config
         lc = self.get_pipeline_launch_config(pipeline_id)
         launch_id = lc["id"]
-        revision = lc.get("revision") or ""
+        revision = revision or lc.get("revision") or ""
         config_text = lc.get("configText") or ""
 
         # Use caller-supplied profiles if provided; otherwise use empty list.

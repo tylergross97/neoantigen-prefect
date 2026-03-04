@@ -210,6 +210,7 @@ def neoantigen_flow(
             "outdir": outdir("sarek"),
         },
         pre_run_script=_upload_script(inputs.wes_samplesheet_csv, wes_s3),
+        revision="3.5.1",   # 3.4.4 has Channel.empty([[]]) bug with NF 25.10.4
         launch_delay_seconds=0,
     )
 
