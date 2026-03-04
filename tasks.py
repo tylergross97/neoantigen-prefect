@@ -73,6 +73,9 @@ def create_and_upload_dataset(
 # Task: launch pipeline and poll until complete
 # ---------------------------------------------------------------------------
 
+_LAST_SESSION_IDS: dict[str, str] = {}  # pipeline_name -> Nextflow sessionId
+
+
 @task(
     name="run-pipeline",
     task_run_name="run-{pipeline_name}-{run_tag}",
@@ -87,7 +90,6 @@ def run_pipeline(
     run_tag: str,
     params: dict[str, Any],
     config_profiles: list[str] | None = None,
-    resume: bool = False,
     launch_delay_seconds: int = 0,
     pre_run_script: str | None = None,
     revision: str | None = None,
@@ -96,17 +98,12 @@ def run_pipeline(
     """
     Launch a Seqera Platform pipeline and block until it completes.
 
+    On the first attempt launches fresh. On the Prefect retry attempt, if a
+    Nextflow sessionId was captured from the failed run it passes resume=True
+    + sessionId so Nextflow can skip already-completed tasks.
+
     Returns the Seqera workflow ID of the completed run. Raises RuntimeError
     if the run ends in any non-SUCCEEDED terminal state.
-
-    Args:
-        cfg:             Seqera workspace + credentials config.
-        pipeline_id:     Integer pipeline ID from the Seqera launchpad.
-        pipeline_name:   Human-readable name used in logs and the run name.
-        run_tag:         Short tag appended to the run name (e.g. patient ID + date).
-        params:          Nextflow params dict (maps to --param_name values).
-        config_profiles: Optional list of Nextflow config profile names.
-        resume:          Pass True to launch with -resume (re-use cached Nextflow work).
     """
     logger = get_run_logger()
 
@@ -119,8 +116,18 @@ def run_pipeline(
     if launch_delay_seconds:
         time.sleep(launch_delay_seconds)
 
+    # Resume from the previous attempt's session if available.
+    prev_session_id = _LAST_SESSION_IDS.get(pipeline_name)
+    resume = prev_session_id is not None
+
     run_name = _safe_run_name(pipeline_name, run_tag)
-    logger.info(f"Launching '{pipeline_name}' as run '{run_name}' (pipeline_id={pipeline_id})")
+    if resume:
+        logger.info(
+            f"Resuming '{pipeline_name}' as run '{run_name}' "
+            f"(session_id={prev_session_id})"
+        )
+    else:
+        logger.info(f"Launching '{pipeline_name}' as run '{run_name}' (pipeline_id={pipeline_id})")
 
     workflow_id = client.launch_pipeline(
         pipeline_id=pipeline_id,
@@ -131,6 +138,7 @@ def run_pipeline(
         credentials_id=cfg.credentials_id,
         config_profiles=config_profiles,
         resume=resume,
+        session_id=prev_session_id,
         pre_run_script=pre_run_script,
         revision=revision,
         config_text_extra=config_text_extra,
@@ -142,12 +150,20 @@ def run_pipeline(
     )
     logger.info(f"Run launched: {workflow_id}\n  Monitor: {seqera_url}")
 
-    client.poll_until_complete(
-        workflow_id=workflow_id,
-        pipeline_name=pipeline_name,
-        poll_interval=60,
-        logger=logger,
-    )
+    try:
+        _, session_id = client.poll_until_complete(
+            workflow_id=workflow_id,
+            pipeline_name=pipeline_name,
+            poll_interval=60,
+            logger=logger,
+        )
+    except RuntimeError as exc:
+        sid = getattr(exc, "session_id", None)
+        if sid:
+            _LAST_SESSION_IDS[pipeline_name] = sid
+            logger.warning(f"Captured sessionId={sid} for resume on retry")
+        raise
 
+    _LAST_SESSION_IDS.pop(pipeline_name, None)  # clear on success
     logger.info(f"'{pipeline_name}' SUCCEEDED (run {workflow_id})")
     return workflow_id

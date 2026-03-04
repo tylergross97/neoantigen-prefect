@@ -213,7 +213,7 @@ def neoantigen_flow(
         },
         pre_run_script=_upload_script(inputs.wes_samplesheet_csv, wes_s3),
         revision="3.5.1",   # 3.4.4 has Channel.empty([[]]) bug with NF 25.10.4
-        resume=True,
+
         launch_delay_seconds=0,
     )
 
@@ -233,7 +233,7 @@ def neoantigen_flow(
         # (mmap/resize) is incompatible with FUSE semantics. Disabling Fusion
         # for the whole pipeline forces standard S3 staging (copy in/out) instead.
         config_text_extra="fusion {\n    enabled = false\n}\n",
-        resume=True,
+
         launch_delay_seconds=5,
     )
 
@@ -249,7 +249,7 @@ def neoantigen_flow(
             "outdir": outdir("rnaseq"),
         },
         pre_run_script=_upload_script(inputs.rnaseq_samplesheet_csv, rnaseq_s3),
-        resume=True,
+
         launch_delay_seconds=10,
     )
 
@@ -268,7 +268,7 @@ def neoantigen_flow(
             "outdir": outdir("vcf_expression_annotator"),
             "sample": sample,
         },
-        resume=True,
+
         wait_for=[sarek_future, rnaseq_future],
     )
 
@@ -288,7 +288,7 @@ def neoantigen_flow(
             "outdir": outdir("purecn"),
             "sample": sample,
         },
-        resume=True,
+
         wait_for=[sarek_future],
     )
 
@@ -306,7 +306,7 @@ def neoantigen_flow(
             "alleles": hlatyping_result(outdir("hlatyping"), sample),
             "outdir": outdir("epitopeprediction"),
         },
-        resume=True,
+
         wait_for=[vcf_annot_future, hlatyping_future],
     )
 
@@ -345,7 +345,7 @@ def neoantigen_flow(
             "input": pp_dataset_uri,
             "outdir": outdir("post_processing"),
         },
-        resume=True,
+
     )
 
     post_processing_future.result()  # block until the flow is truly complete

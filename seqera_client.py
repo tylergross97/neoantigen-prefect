@@ -227,9 +227,9 @@ class SeqeraClient:
     # Run status API
     # ------------------------------------------------------------------
 
-    def get_run_status(self, workflow_id: str) -> tuple[str, str | None]:
+    def get_run_status(self, workflow_id: str) -> tuple[str, str | None, str | None]:
         """
-        Return (status, exit_status) for a workflow run.
+        Return (status, exit_status, session_id) for a workflow run.
 
         GET /workflow/{workflowId}?workspaceId={id}
         """
@@ -241,7 +241,7 @@ class SeqeraClient:
         )
         resp.raise_for_status()
         wf = resp.json()["workflow"]
-        return wf["status"], wf.get("exitStatus")
+        return wf["status"], wf.get("exitStatus"), wf.get("sessionId")
 
     def poll_until_complete(
         self,
@@ -250,22 +250,26 @@ class SeqeraClient:
         poll_interval: int = 60,
         max_consecutive_errors: int = 5,
         logger: Any = None,
-    ) -> str:
+    ) -> tuple[str, str | None]:
         """
         Block until the run reaches a terminal state.
 
-        Returns the final status string ("SUCCEEDED").
-        Raises RuntimeError if the run fails or is cancelled.
+        Returns (final_status, session_id).
+        Raises RuntimeError (with session_id attached as .session_id) if the
+        run fails or is cancelled — so callers can resume from the failed session.
         Tolerates up to `max_consecutive_errors` consecutive API failures
         before re-raising (handles transient network issues).
         """
         label = pipeline_name or workflow_id
         consecutive_errors = 0
+        last_session_id: str | None = None
 
         while True:
             try:
-                status, exit_status = self.get_run_status(workflow_id)
+                status, exit_status, session_id = self.get_run_status(workflow_id)
                 consecutive_errors = 0  # reset on success
+                if session_id:
+                    last_session_id = session_id
             except (httpx.HTTPError, httpx.TimeoutException) as exc:
                 consecutive_errors += 1
                 if logger:
@@ -283,10 +287,12 @@ class SeqeraClient:
 
             if status in _TERMINAL_STATES:
                 if status != "SUCCEEDED":
-                    raise RuntimeError(
+                    err = RuntimeError(
                         f"Pipeline '{label}' (run {workflow_id}) ended with "
                         f"status={status}, exitStatus={exit_status}"
                     )
-                return status
+                    err.session_id = last_session_id  # type: ignore[attr-defined]
+                    raise err
+                return status, last_session_id
 
             time.sleep(poll_interval)
