@@ -107,6 +107,24 @@ For groups working toward clinical translation, the audit trail built into every
 
 ---
 
+## Benchmarking Against the TESLA Dataset
+
+A pipeline is only as useful as its ability to correctly identify neoantigens that the immune system actually recognizes. To rigorously validate this approach, we are benchmarking against the TESLA dataset — the most comprehensive publicly available ground truth for neoantigen prediction.
+
+TESLA (Tumor Epitope Selection Alliance) was a consortium effort published in *Nature Biotechnology* in 2020 by Wells et al. Nine independent computational pipelines were evaluated against matched tumor-normal WES and RNA-seq data from cancer patients whose neoantigens had been experimentally validated by T cell assays. The result is a gold-standard dataset: known input sequencing data, known HLA types, and a curated list of peptides confirmed to be immunogenic in the actual patient.
+
+Running this pipeline against the TESLA cohort will allow us to report:
+
+- **Sensitivity** — what fraction of experimentally validated neoantigens does the pipeline recover, and at what rank in the prioritized candidate list?
+- **Specificity** — how effectively does expression filtering and clonality estimation reduce the false positive burden?
+- **Computational cost per patient** — pulled directly from Seqera Platform's run reports, which log resource utilization and cost for every execution
+- **End-to-end runtime** — from raw FASTQ to ranked neoantigen candidates, with per-pipeline breakdowns visible in the Seqera Platform UI
+- **Resume efficiency** — by comparing cost with and without `-resume` on a simulated failure, quantifying exactly how much compute the recovery mechanism saves
+
+These results will be reported in a follow-up post. The TESLA dataset is available under controlled access via dbGaP (accession phs001910) for researchers with an approved data access request.
+
+---
+
 ## Getting Started
 
 The code for this orchestration layer is open source and available at **[LINK TO GITHUB REPO]**. It requires a Seqera Platform account, an AWS compute environment configured in Seqera, and the seven pipelines added to your workspace launchpad.
