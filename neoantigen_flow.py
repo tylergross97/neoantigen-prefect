@@ -47,7 +47,7 @@ SAREK_PARAMS: dict = {
 HLATYPING_PARAMS: dict = {
     "genome": "hg38",
     "solver": "glpk",               # LP solver for OptiType
-    "seqtype": "dna",               # use DNA reads (not rna)
+    # "seqtype" was removed in nf-core/hlatyping v2.x (invalid param in v2.2.0)
 }
 
 RNASEQ_PARAMS: dict = {
@@ -229,8 +229,17 @@ def neoantigen_flow(
             "outdir": outdir("hlatyping"),
         },
         pre_run_script=_upload_script(inputs.hlatyping_samplesheet_csv, hla_s3),
-        revision="2.2.0",  # 2.0.0 YARA_MAPPER crashes with Seqera Fusion (seqan async I/O bug)
-
+        revision="2.2.0",
+        # YARA_MAPPER uses seqan async file I/O (fallocate/resize) that fails on Seqera Fusion
+        # FUSE mount. Setting scratch = true moves the process CWD to the node's local /tmp,
+        # so seqan creates its .fusion/tmp/ temp files on real local disk instead of Fusion.
+        config_text_extra=(
+            "process {\n"
+            "    withName: 'NFCORE_HLATYPING:HLATYPING:YARA_MAPPER' {\n"
+            "        scratch = true\n"
+            "    }\n"
+            "}\n"
+        ),
         launch_delay_seconds=5,
     )
 
