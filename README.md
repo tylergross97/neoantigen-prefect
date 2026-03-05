@@ -8,10 +8,11 @@ Prefect 3 orchestration layer for end-to-end neoantigen prediction from tumor–
 
 This repo contains no Nextflow code itself. It acts as a supervisor that:
 
-1. Uploads per-patient samplesheets to Seqera as [Datasets](https://docs.seqera.io/platform/latest/data/datasets)
-2. Launches 7 Nextflow pipelines in the correct dependency order via the Seqera API
+1. Writes per-patient samplesheets to S3 via pre-run scripts (executed on the compute head node before Nextflow starts)
+2. Launches 7 Nextflow pipelines in the correct dependency order via the Seqera Platform API
 3. Polls each run until completion before triggering downstream steps
-4. Returns the final S3 output path
+4. Supports automatic `-resume` on Prefect retries and manual resume seeding via `--resume-workflow`
+5. Returns the final S3 output path
 
 All heavy compute runs on AWS Batch through Seqera Platform — the Prefect flow runs locally (or in Prefect Cloud) and just orchestrates API calls.
 
@@ -36,7 +37,7 @@ epitopeprediction + vcf-expression-annotator + nextflow-purecn
   └──► post-processing (7+8)     merge binding predictions, join CCF, prioritise neoantigens
 ```
 
-Steps 1, 2, and 3 launch in parallel. Steps 4 and 6 run in parallel after sarek. Step 5 runs after 4. Step 7+8 runs after 5 and 6.
+Steps 1, 2, and 3 launch in parallel. Steps 4 and 6 run in parallel after sarek. Step 5 runs after 4 and 2. Steps 7+8 run after 5, 4, and 6.
 
 ---
 
@@ -64,15 +65,30 @@ neoantigen-prefect/
 
 The following pipelines must be added to your Seqera workspace before running. IDs are stored in `config.py`.
 
-| Step | Pipeline | Source |
-|------|----------|--------|
-| 1 | nf-core/sarek | https://github.com/nf-core/sarek |
-| 2 | nf-core/hlatyping | https://github.com/nf-core/hlatyping |
-| 3 | nf-core/rnaseq | https://github.com/nf-core/rnaseq |
-| 4 | vcf-expression-annotator | https://github.com/tylergross97/vcf_expression_annotation |
-| 5 | nf-core/epitopeprediction | https://github.com/nf-core/epitopeprediction |
-| 6 | nextflow-purecn | https://github.com/tylergross97/nextflow_purecn |
-| 7+8 | post-processing | https://github.com/tylergross97/post-processing |
+| Step | Pipeline | Version | Source |
+|------|----------|---------|--------|
+| 1 | nf-core/sarek | 3.5.1 | https://github.com/nf-core/sarek |
+| 2 | nf-core/hlatyping | 2.2.0 | https://github.com/nf-core/hlatyping |
+| 3 | nf-core/rnaseq | latest | https://github.com/nf-core/rnaseq |
+| 4 | vcf-expression-annotator | latest | https://github.com/tylergross97/vcf_expression_annotation |
+| 5 | nf-core/epitopeprediction | latest | https://github.com/nf-core/epitopeprediction |
+| 6 | nextflow-purecn | latest | https://github.com/tylergross97/nextflow_purecn |
+| 7+8 | post-processing | latest | https://github.com/tylergross97/post-processing |
+
+### Pipeline-specific configuration notes
+
+**nf-core/sarek**: Pin revision to `3.5.1`. Earlier versions have a `Channel.empty([[]])` incompatibility with Nextflow ≥25.10.
+
+**nf-core/hlatyping**: Pin revision to `2.2.0`. Add the following to the launchpad configText to disable Seqera Fusion for this pipeline — YARA_MAPPER (seqan-based) uses async file I/O (`fallocate`/`resize`) that is incompatible with the Fusion FUSE filesystem:
+
+```groovy
+fusion {
+    enabled = false
+}
+wave {
+    enabled = true
+}
+```
 
 ---
 
@@ -138,9 +154,11 @@ PID001,XX,1,PID001_T,1,s3://bucket/tumor_R1.fastq.gz,s3://bucket/tumor_R2.fastq.
 
 **HLA typing (`nf-core/hlatyping` format — normal reads only):**
 ```csv
-sample,fastq_1,fastq_2,seq_type
-PID001_N,s3://bucket/normal_R1.fastq.gz,s3://bucket/normal_R2.fastq.gz,dna
+sample,fastq_1,fastq_2
+PID001_N,s3://bucket/normal_R1.fastq.gz,s3://bucket/normal_R2.fastq.gz
 ```
+
+Note: the `seq_type` column was removed in nf-core/hlatyping v2.x.
 
 **RNA-seq (`nf-core/rnaseq` format):**
 ```csv
@@ -168,7 +186,24 @@ python run_flow.py \
 | `--rnaseq-samplesheet` | yes | Path to rnaseq-format CSV |
 | `--tumor-sample` | yes | Tumor sample name as used by sarek (e.g. `PID001_T_vs_PID001_N`) |
 | `--sex` | no | `XX` or `XY` (default: `XX`) |
-| `--run-tag` | no | Short label appended to run names (default: patient ID + date) |
+| `--run-tag` | no | Short label appended to run names (default: patient ID + UTC date) |
+| `--resume-workflow` | no | `PIPELINE_NAME:WORKFLOW_ID` — resume from an existing run (repeatable) |
+
+### Resuming from a previous run
+
+If a flow run fails partway through, you can resume each pipeline from its last Seqera run instead of starting from scratch. Pass `--resume-workflow` once per pipeline you want to resume:
+
+```bash
+python run_flow.py \
+  --patient-id PID001 \
+  ... \
+  --resume-workflow "nf-core/sarek:5Zpxj5YTfyiacx" \
+  --resume-workflow "nf-core/rnaseq:qzhhZjJ00GctM"
+```
+
+Pipelines not listed will start fresh. The resume uses `GET /workflow/{id}/launch` to obtain the correct workflow-entity launchId and embedded sessionId — this is required because Seqera rejects `resume=true` when the launchId has `entity=pipeline`.
+
+Automatic resume also occurs on Prefect task retries: if a pipeline fails during a run, the task captures its workflowId and uses it for resume on the next Prefect retry attempt.
 
 ### Override pipeline IDs at runtime
 
@@ -200,12 +235,16 @@ s3://bucket/neoantigen/PID001/
     └── *.png                                 # QC plots
 ```
 
+Samplesheets are written to `SEQERA_BASE_OUTDIR/{patient_id}/samplesheets/` on S3 before each pipeline starts.
+
 ---
 
 ## Architecture Notes
 
+- **Samplesheet delivery**: samplesheets are written to S3 via bash heredoc pre-run scripts that execute on the Seqera compute head node before Nextflow starts. This avoids nf-schema `^\S+\.csv$` validation failures that occur with dataset:// or API HTTPS URLs. The pre-run scripts are sourced (not subprocess-executed) by `nf-launcher.sh`, so `set -u` must not be used.
 - **Prefect tasks** run in worker threads. Parallelism is achieved by submitting tasks with `.submit()` and resolving futures with `.result()` at dependency boundaries.
-- **Seqera API**: datasets are uploaded via `POST /workspaces/{id}/datasets/{id}/upload`, pipelines are launched via `POST /workflow/launch?workspaceId={id}` after fetching the pipeline's saved launch config.
+- **Resume mechanism**: on Prefect retry, `tasks.py` passes the failed run's workflowId as `resume_from_workflow_id` to `SeqeraClient.launch_pipeline()`, which calls `GET /workflow/{id}/launch` to get the workflow-entity launchId and sessionId. Using the pipeline-entity launchId with `resume=true` returns a 400 error from Seqera.
+- **Seqera API**: pipelines are launched via `POST /workflow/launch?workspaceId={id}` after fetching the pipeline's saved launch config. Datasets for post-processing input are uploaded via `POST /workspaces/{id}/datasets/{id}/upload`.
 - **No caching** on dataset upload tasks — Seqera datasets are cheap to create and caching caused stale references after deletion.
 
 ---
