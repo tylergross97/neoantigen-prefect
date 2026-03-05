@@ -52,9 +52,6 @@ def create_and_upload_dataset(
     """
     Create a named Seqera Dataset, upload the CSV content, and return the
     dataset:// URI for use as a pipeline --input param.
-
-    Cached by (cfg, name, csv_content) so identical uploads are skipped on
-    flow reruns.
     """
     logger = get_run_logger()
     client = SeqeraClient(
@@ -73,7 +70,10 @@ def create_and_upload_dataset(
 # Task: launch pipeline and poll until complete
 # ---------------------------------------------------------------------------
 
-_LAST_SESSION_IDS: dict[str, str] = {}  # pipeline_name -> Nextflow sessionId
+# Maps pipeline_name → workflowId of the last failed run.
+# Used to pass resume_from_workflow_id on the Prefect retry attempt.
+# Persists for the lifetime of the Python process (i.e. one flow run).
+_LAST_WORKFLOW_IDS: dict[str, str] = {}
 
 
 @task(
@@ -98,9 +98,14 @@ def run_pipeline(
     """
     Launch a Seqera Platform pipeline and block until it completes.
 
-    On the first attempt launches fresh. On the Prefect retry attempt, if a
-    Nextflow sessionId was captured from the failed run it passes resume=True
-    + sessionId so Nextflow can skip already-completed tasks.
+    On the first Prefect attempt: launches fresh.
+    On the Prefect retry attempt: if a workflowId was captured from the failed
+    run, uses GET /workflow/{id}/launch to obtain the workflow entity launchId
+    and embedded sessionId, then launches with resume=True so Nextflow skips
+    already-completed tasks.
+
+    The workflow entity launchId is required for resume — Seqera rejects
+    resume=true when the launchId has entity=pipeline (returns 400).
 
     Returns the Seqera workflow ID of the completed run. Raises RuntimeError
     if the run ends in any non-SUCCEEDED terminal state.
@@ -116,20 +121,18 @@ def run_pipeline(
     if launch_delay_seconds:
         time.sleep(launch_delay_seconds)
 
-    # Resume from the previous attempt's session if available.
-    prev_session_id = _LAST_SESSION_IDS.get(pipeline_name)
-    resume = prev_session_id is not None
-
+    prev_workflow_id = _LAST_WORKFLOW_IDS.get(pipeline_name)
     run_name = _safe_run_name(pipeline_name, run_tag)
-    if resume:
+
+    if prev_workflow_id:
         logger.info(
             f"Resuming '{pipeline_name}' as run '{run_name}' "
-            f"(session_id={prev_session_id})"
+            f"(from workflow {prev_workflow_id})"
         )
     else:
         logger.info(f"Launching '{pipeline_name}' as run '{run_name}' (pipeline_id={pipeline_id})")
 
-    def _launch(use_resume: bool, session_id: str | None) -> str:
+    def _launch(resume_from: str | None) -> str:
         return client.launch_pipeline(
             pipeline_id=pipeline_id,
             compute_env_id=cfg.compute_env_id,
@@ -138,22 +141,21 @@ def run_pipeline(
             run_name=run_name,
             credentials_id=cfg.credentials_id,
             config_profiles=config_profiles,
-            resume=use_resume,
-            session_id=session_id,
             pre_run_script=pre_run_script,
             revision=revision,
             config_text_extra=config_text_extra,
+            resume_from_workflow_id=resume_from,
         )
 
     try:
-        workflow_id = _launch(resume, prev_session_id)
+        workflow_id = _launch(prev_workflow_id)
     except RuntimeError as exc:
-        if resume and "400" in str(exc):
+        if prev_workflow_id and "400" in str(exc):
             logger.warning(
-                f"Resume launch rejected by Seqera (400) — falling back to fresh start"
+                "Resume launch rejected by Seqera (400) — falling back to fresh start"
             )
-            _LAST_SESSION_IDS.pop(pipeline_name, None)
-            workflow_id = _launch(False, None)
+            _LAST_WORKFLOW_IDS.pop(pipeline_name, None)
+            workflow_id = _launch(None)
         else:
             raise
 
@@ -164,19 +166,17 @@ def run_pipeline(
     logger.info(f"Run launched: {workflow_id}\n  Monitor: {seqera_url}")
 
     try:
-        _, session_id = client.poll_until_complete(
+        client.poll_until_complete(
             workflow_id=workflow_id,
             pipeline_name=pipeline_name,
             poll_interval=60,
             logger=logger,
         )
-    except RuntimeError as exc:
-        sid = getattr(exc, "session_id", None)
-        if sid:
-            _LAST_SESSION_IDS[pipeline_name] = sid
-            logger.warning(f"Captured sessionId={sid} for resume on retry")
+    except RuntimeError:
+        _LAST_WORKFLOW_IDS[pipeline_name] = workflow_id
+        logger.warning(f"Captured workflowId={workflow_id} for resume on retry")
         raise
 
-    _LAST_SESSION_IDS.pop(pipeline_name, None)  # clear on success
+    _LAST_WORKFLOW_IDS.pop(pipeline_name, None)  # clear on success
     logger.info(f"'{pipeline_name}' SUCCEEDED (run {workflow_id})")
     return workflow_id

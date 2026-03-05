@@ -108,10 +108,6 @@ class SeqeraClient:
         Return the HTTPS download URL for the latest version of a dataset.
 
         GET /workspaces/{id}/datasets/{datasetId}/versions?mimeType=text/csv
-
-        Returns a URL ending in .csv that:
-          - passes nf-schema's ^\S+\.csv$ pattern validation
-          - is accessible by the nf-tower Nextflow plugin (handles auth automatically)
         """
         resp = httpx.get(
             self._workspace_url(f"/datasets/{dataset_id}/versions"),
@@ -135,10 +131,29 @@ class SeqeraClient:
 
         GET /pipelines/{pipelineId}/launch?workspaceId={id}
 
-        Returns the launch config dict (contains launchId, computeEnv, revision, etc.).
+        Returns the launch config dict (entity=pipeline, contains launchId, revision, etc.).
         """
         resp = httpx.get(
             self._url(f"/pipelines/{pipeline_id}/launch"),
+            params={"workspaceId": self.workspace_id},
+            headers=self._headers(),
+            timeout=self._timeout,
+        )
+        resp.raise_for_status()
+        return resp.json()["launch"]
+
+    def get_workflow_launch_config(self, workflow_id: str) -> dict[str, Any]:
+        """
+        Fetch the launch configuration of an existing workflow run.
+
+        GET /workflow/{workflowId}/launch?workspaceId={id}
+
+        Returns the launch config dict (entity=workflow). This launchId is required
+        when resuming — Seqera rejects resume=true with a pipeline entity launchId.
+        The config also carries the original sessionId needed for Nextflow cache lookup.
+        """
+        resp = httpx.get(
+            self._url(f"/workflow/{workflow_id}/launch"),
             params={"workspaceId": self.workspace_id},
             headers=self._headers(),
             timeout=self._timeout,
@@ -155,40 +170,53 @@ class SeqeraClient:
         run_name: str,
         credentials_id: str | None = None,
         config_profiles: list[str] | None = None,
-        resume: bool = False,
-        session_id: str | None = None,
         pre_run_script: str | None = None,
         revision: str | None = None,
         config_text_extra: str | None = None,
+        resume_from_workflow_id: str | None = None,
     ) -> str:
         """
         Launch a pipeline and return the workflow ID (run ID).
 
-        Flow:
-          1. GET /pipelines/{id}/launch  — fetch saved launch config (launchId, revision, configText)
-          2. POST /workflow/launch?workspaceId={id}  — submit the run
+        Fresh start:
+          1. GET /pipelines/{id}/launch  — fetch pipeline launch config (entity=pipeline)
+          2. POST /workflow/launch        — submit with resume=false
 
-        Returns the workflowId string.
+        Resume from a previous run:
+          1. GET /workflow/{prevId}/launch — fetch workflow launch config (entity=workflow)
+             This gives the correct launchId and the embedded sessionId.
+          2. GET /pipelines/{id}/launch    — for revision/configText base
+          3. POST /workflow/launch         — submit with resume=true + sessionId
+
+        Seqera rejects resume=true when the launchId has entity=pipeline; the workflow
+        entity launchId must be used instead.
         """
-        # Step 1: fetch the pipeline's saved launch config
-        lc = self.get_pipeline_launch_config(pipeline_id)
-        launch_id = lc["id"]
-        revision = revision or lc.get("revision") or ""
-        config_text = lc.get("configText") or ""
+        # Always fetch the pipeline's saved config for revision and configText base.
+        pl_lc = self.get_pipeline_launch_config(pipeline_id)
+
+        if resume_from_workflow_id:
+            # Resume path: get the workflow entity launchId + embedded sessionId.
+            wf_lc = self.get_workflow_launch_config(resume_from_workflow_id)
+            launch_id = wf_lc["id"]
+            session_id = wf_lc.get("sessionId")
+            use_resume = True
+        else:
+            launch_id = pl_lc["id"]
+            session_id = None
+            use_resume = False
+
+        revision = revision or pl_lc.get("revision") or ""
+        config_text = pl_lc.get("configText") or ""
         if config_text_extra:
             config_text = config_text + "\n" + config_text_extra
 
-        # Use caller-supplied profiles if provided; otherwise use empty list.
-        # We deliberately do NOT inherit configProfiles from the launchpad template
-        # (which often contains "test") — our params already specify real data.
+        # Do NOT inherit configProfiles from the launchpad template (often "test").
         profiles = config_profiles if config_profiles is not None else []
 
-        # Step 2: build the launch body.
-        # paramsText is a JSON string (not a nested object).
         launch_body: dict[str, Any] = {
             "id": launch_id,
             "computeEnvId": compute_env_id,
-            "pipeline": lc.get("pipeline", ""),
+            "pipeline": pl_lc.get("pipeline", ""),
             "workDir": work_dir,
             "revision": revision,
             "configProfiles": profiles,
@@ -198,7 +226,7 @@ class SeqeraClient:
             "stubRun": False,
             "userSecrets": [],
             "workspaceSecrets": [],
-            "resume": resume,
+            "resume": use_resume,
         }
         if run_name:
             launch_body["runName"] = run_name
@@ -227,9 +255,9 @@ class SeqeraClient:
     # Run status API
     # ------------------------------------------------------------------
 
-    def get_run_status(self, workflow_id: str) -> tuple[str, str | None, str | None]:
+    def get_run_status(self, workflow_id: str) -> tuple[str, str | None]:
         """
-        Return (status, exit_status, session_id) for a workflow run.
+        Return (status, exit_status) for a workflow run.
 
         GET /workflow/{workflowId}?workspaceId={id}
         """
@@ -241,7 +269,7 @@ class SeqeraClient:
         )
         resp.raise_for_status()
         wf = resp.json()["workflow"]
-        return wf["status"], wf.get("exitStatus"), wf.get("sessionId")
+        return wf["status"], wf.get("exitStatus")
 
     def poll_until_complete(
         self,
@@ -250,26 +278,21 @@ class SeqeraClient:
         poll_interval: int = 60,
         max_consecutive_errors: int = 5,
         logger: Any = None,
-    ) -> tuple[str, str | None]:
+    ) -> str:
         """
-        Block until the run reaches a terminal state.
+        Block until the run reaches a terminal state. Returns the final status.
 
-        Returns (final_status, session_id).
-        Raises RuntimeError (with session_id attached as .session_id) if the
-        run fails or is cancelled — so callers can resume from the failed session.
-        Tolerates up to `max_consecutive_errors` consecutive API failures
-        before re-raising (handles transient network issues).
+        Raises RuntimeError if the run ends in any non-SUCCEEDED terminal state.
+        Tolerates up to `max_consecutive_errors` consecutive API failures before
+        re-raising (handles transient network issues).
         """
         label = pipeline_name or workflow_id
         consecutive_errors = 0
-        last_session_id: str | None = None
 
         while True:
             try:
-                status, exit_status, session_id = self.get_run_status(workflow_id)
-                consecutive_errors = 0  # reset on success
-                if session_id:
-                    last_session_id = session_id
+                status, exit_status = self.get_run_status(workflow_id)
+                consecutive_errors = 0
             except (httpx.HTTPError, httpx.TimeoutException) as exc:
                 consecutive_errors += 1
                 if logger:
@@ -287,12 +310,10 @@ class SeqeraClient:
 
             if status in _TERMINAL_STATES:
                 if status != "SUCCEEDED":
-                    err = RuntimeError(
+                    raise RuntimeError(
                         f"Pipeline '{label}' (run {workflow_id}) ended with "
                         f"status={status}, exitStatus={exit_status}"
                     )
-                    err.session_id = last_session_id  # type: ignore[attr-defined]
-                    raise err
-                return status, last_session_id
+                return status
 
             time.sleep(poll_interval)
