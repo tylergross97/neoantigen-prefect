@@ -228,7 +228,9 @@ class SeqeraClient:
             "workspaceSecrets": [],
             "resume": use_resume,
         }
-        if run_name:
+        # On resume, omit runName to let Seqera auto-generate a unique name.
+        # Sending the same runName as the original run causes a 409 conflict.
+        if run_name and not use_resume:
             launch_body["runName"] = run_name
         if credentials_id:
             launch_body["credentialsId"] = credentials_id
