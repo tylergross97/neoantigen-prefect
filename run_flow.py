@@ -27,6 +27,7 @@ load_dotenv()
 
 from config import PipelineIds, SeqeraConfig
 from neoantigen_flow import NeoantigenInputs, neoantigen_flow
+import tasks  # imported for _LAST_WORKFLOW_IDS pre-seeding
 
 
 def _int_or_env(arg_val: int | None, env_key: str) -> int | None:
@@ -75,6 +76,18 @@ def main() -> None:
 
     # Optional
     parser.add_argument("--run-tag", default="", help="Short tag appended to run names")
+    parser.add_argument(
+        "--resume-workflow",
+        action="append",
+        default=[],
+        metavar="PIPELINE_NAME:WORKFLOW_ID",
+        help=(
+            "Pre-seed a pipeline to resume from an existing Seqera workflow run. "
+            "Format: 'nf-core/sarek:5Zpxj5YTfyiacx'. "
+            "Can be specified multiple times. "
+            "Resume uses GET /workflow/{id}/launch to obtain the correct entity launchId."
+        ),
+    )
 
     # Pipeline ID overrides (fall back to defaults in config.py)
     id_group = parser.add_argument_group("Pipeline ID overrides (optional)")
@@ -104,6 +117,15 @@ def main() -> None:
         purecn=_int_or_env(args.purecn_id, "PIPELINE_PURECN_ID") or defaults.purecn,
         post_processing=_int_or_env(args.post_processing_id, "PIPELINE_POST_PROCESSING_ID") or defaults.post_processing,
     )
+
+    # Pre-seed workflow IDs for resume. The task will use GET /workflow/{id}/launch
+    # to obtain the workflow entity launchId + sessionId on the first launch attempt.
+    for entry in args.resume_workflow:
+        if ":" not in entry:
+            sys.exit(f"--resume-workflow must be 'PIPELINE_NAME:WORKFLOW_ID', got: {entry!r}")
+        pipeline_name, workflow_id = entry.split(":", 1)
+        tasks._LAST_WORKFLOW_IDS[pipeline_name] = workflow_id
+        print(f"  Resume seeded: {pipeline_name} → {workflow_id}")
 
     inputs = NeoantigenInputs(
         patient_id=args.patient_id,
