@@ -20,6 +20,8 @@ All heavy compute runs on AWS Batch through Seqera Platform — the Prefect flow
 
 ## Pipeline DAG
 
+![Pipeline DAG](pipeline.svg)
+
 ```mermaid
 flowchart TD
     WES["WES FASTQs\n(tumor + normal)"]
