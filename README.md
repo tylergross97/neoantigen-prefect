@@ -24,26 +24,26 @@ All heavy compute runs on AWS Batch through Seqera Platform — the Prefect flow
 
 ```mermaid
 flowchart TD
-    WES["WES FASTQs\n(tumor + normal)"]
-    RNA["RNA-seq FASTQs\n(tumor)"]
+    WES["WES FASTQs<br/>(tumor + normal)"]
+    RNA["RNA-seq FASTQs<br/>(tumor)"]
 
-    WES --> sarek["1 · nf-core/sarek\nMutect2 · CNVkit · VEP"]
-    WES --> hlatyping["2 · nf-core/hlatyping\nOptiType — normal reads"]
-    RNA --> rnaseq["3 · nf-core/rnaseq\nSTAR-Salmon"]
+    WES --> sarek["1 · nf-core/sarek<br/>Mutect2 · CNVkit · VEP"]
+    WES --> hlatyping["2 · nf-core/hlatyping<br/>OptiType — normal reads"]
+    RNA --> rnaseq["3 · nf-core/rnaseq<br/>STAR-Salmon"]
 
-    sarek -->|"VEP VCF"| vcfannot["4 · vcf-expression-annotator\nannotate VCF with TPM"]
+    sarek -->|"VEP VCF"| vcfannot["4 · vcf-expression-annotator<br/>annotate VCF with TPM"]
     rnaseq -->|"transcript counts TSV"| vcfannot
 
-    sarek -->|"CNS · CNR · VCF"| purecn["6 · nextflow-purecn\ntumor purity & CCF"]
+    sarek -->|"CNS · CNR · VCF"| purecn["6 · nextflow-purecn<br/>tumor purity & CCF"]
 
-    vcfannot -->|"expression-annotated VCF"| epipred["5 · nf-core/epitopeprediction\nMHC-I binding predictions"]
+    vcfannot -->|"expression-annotated VCF"| epipred["5 · nf-core/epitopeprediction<br/>MHC-I binding predictions"]
     hlatyping -->|"HLA alleles"| epipred
 
-    epipred -->|"binding TSV"| postproc["7+8 · post-processing\nmerge · join CCF · prioritise"]
+    epipred -->|"binding TSV"| postproc["7+8 · post-processing<br/>merge · join CCF · prioritise"]
     vcfannot -->|"variants CSV"| postproc
     purecn -->|"CCF CSV"| postproc
 
-    postproc --> out["Prioritised Neoantigens\nS3 output"]
+    postproc --> out["Prioritised Neoantigens<br/>S3 output"]
 
     style WES fill:#2563eb,stroke:#1d4ed8,color:#fff
     style RNA fill:#2563eb,stroke:#1d4ed8,color:#fff
