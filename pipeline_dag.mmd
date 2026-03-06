@@ -1,0 +1,32 @@
+flowchart TD
+    WES["WES FASTQs\n(tumor + normal)"]
+    RNA["RNA-seq FASTQs\n(tumor)"]
+
+    WES --> sarek["1 · nf-core/sarek\nMutect2 · CNVkit · VEP"]
+    WES --> hlatyping["2 · nf-core/hlatyping\nOptiType — normal reads"]
+    RNA --> rnaseq["3 · nf-core/rnaseq\nSTAR-Salmon"]
+
+    sarek -->|"VEP VCF"| vcfannot["4 · vcf-expression-annotator\nannotate VCF with TPM"]
+    rnaseq -->|"transcript counts TSV"| vcfannot
+
+    sarek -->|"CNS · CNR · VCF"| purecn["6 · nextflow-purecn\ntumor purity & CCF"]
+
+    vcfannot -->|"expression-annotated VCF"| epipred["5 · nf-core/epitopeprediction\nMHC-I binding predictions"]
+    hlatyping -->|"HLA alleles"| epipred
+
+    epipred -->|"binding TSV"| postproc["7+8 · post-processing\nmerge · join CCF · prioritise"]
+    vcfannot -->|"variants CSV"| postproc
+    purecn -->|"CCF CSV"| postproc
+
+    postproc --> out["Prioritised Neoantigens\nS3 output"]
+
+    style WES fill:#dbeafe,stroke:#3b82f6
+    style RNA fill:#dbeafe,stroke:#3b82f6
+    style out fill:#dcfce7,stroke:#16a34a
+    style sarek fill:#fef9c3,stroke:#ca8a04
+    style hlatyping fill:#fef9c3,stroke:#ca8a04
+    style rnaseq fill:#fef9c3,stroke:#ca8a04
+    style vcfannot fill:#fef9c3,stroke:#ca8a04
+    style purecn fill:#fef9c3,stroke:#ca8a04
+    style epipred fill:#fef9c3,stroke:#ca8a04
+    style postproc fill:#fef9c3,stroke:#ca8a04
