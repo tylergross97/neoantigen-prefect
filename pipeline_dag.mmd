@@ -1,32 +1,42 @@
-flowchart TD
-    WES["WES FASTQs\n(tumor + normal)"]
-    RNA["RNA-seq FASTQs\n(tumor)"]
+%%metro title: Neoantigen Prediction Pipeline
+%%metro style: dark
+%%metro line: variants | Variant Analysis | #F59E0B
+%%metro line: expression | Expression | #3B82F6
+%%metro line: hla | HLA Typing | #8B5CF6
+%%metro line: neoantigen | Neoantigen | #10B981
 
-    WES --> sarek["1 · nf-core/sarek\nMutect2 · CNVkit · VEP"]
-    WES --> hlatyping["2 · nf-core/hlatyping\nOptiType — normal reads"]
-    RNA --> rnaseq["3 · nf-core/rnaseq\nSTAR-Salmon"]
+graph LR
+    subgraph inputs [Inputs]
+        wes["WES FASTQs\n(tumor + normal)"]
+        rna["RNA-seq FASTQs\n(tumor)"]
+    end
 
-    sarek -->|"VEP VCF"| vcfannot["4 · vcf-expression-annotator\nannotate VCF with TPM"]
-    rnaseq -->|"transcript counts TSV"| vcfannot
+    subgraph nfcore [nf-core Pipelines]
+        sarek["1 · nf-core/sarek\nMutect2 · CNVkit · VEP"]
+        hlatyping["2 · nf-core/hlatyping\nOptiType — normal reads"]
+        rnaseq["3 · nf-core/rnaseq\nSTAR-Salmon"]
+    end
 
-    sarek -->|"CNS · CNR · VCF"| purecn["6 · nextflow-purecn\ntumor purity & CCF"]
+    subgraph annotation [Annotation]
+        vcfannot["4 · vcf-expression-annotator\nannotate VCF with TPM"]
+        purecn["6 · nextflow-purecn\ntumor purity & CCF"]
+    end
 
-    vcfannot -->|"expression-annotated VCF"| epipred["5 · nf-core/epitopeprediction\nMHC-I binding predictions"]
-    hlatyping -->|"HLA alleles"| epipred
+    subgraph prediction [Prediction & Output]
+        epipred["5 · nf-core/epitopeprediction\nMHC-I binding predictions"]
+        postproc["7+8 · post-processing\nmerge · join CCF · prioritise"]
+        out["Prioritised Neoantigens\nS3 output"]
+    end
 
-    epipred -->|"binding TSV"| postproc["7+8 · post-processing\nmerge · join CCF · prioritise"]
-    vcfannot -->|"variants CSV"| postproc
-    purecn -->|"CCF CSV"| postproc
-
-    postproc --> out["Prioritised Neoantigens\nS3 output"]
-
-    style WES fill:#dbeafe,stroke:#3b82f6
-    style RNA fill:#dbeafe,stroke:#3b82f6
-    style out fill:#dcfce7,stroke:#16a34a
-    style sarek fill:#fef9c3,stroke:#ca8a04
-    style hlatyping fill:#fef9c3,stroke:#ca8a04
-    style rnaseq fill:#fef9c3,stroke:#ca8a04
-    style vcfannot fill:#fef9c3,stroke:#ca8a04
-    style purecn fill:#fef9c3,stroke:#ca8a04
-    style epipred fill:#fef9c3,stroke:#ca8a04
-    style postproc fill:#fef9c3,stroke:#ca8a04
+    wes -->|variants| sarek
+    wes -->|hla| hlatyping
+    rna -->|expression| rnaseq
+    sarek -->|"variants,expression"| vcfannot
+    sarek -->|variants| purecn
+    rnaseq -->|expression| vcfannot
+    vcfannot -->|"variants,hla"| epipred
+    hlatyping -->|hla| epipred
+    epipred -->|neoantigen| postproc
+    vcfannot -->|neoantigen| postproc
+    purecn -->|neoantigen| postproc
+    postproc -->|neoantigen| out
