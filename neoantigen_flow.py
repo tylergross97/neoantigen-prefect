@@ -72,9 +72,8 @@ EPITOPEPREDICTION_PARAMS: dict = {
 }
 
 PURECN_PARAMS: dict = {
-    "fasta": "s3://ngi-igenomes/igenomes/Homo_sapiens/GATK/GRCh38/Sequence/WholeGenomeFasta/Homo_sapiens_assembly38.fasta",
-    "gtf": "s3://ngi-igenomes/igenomes/Homo_sapiens/GATK/GRCh38/Annotation/Genes/genes.gtf",
     # snp_blacklist is set at launch time to an S3 path (HTTP URLs fail Nextflow's .exists() check)
+    # fasta/gtf removed: PureCN.R uses --genome hg38, not --fasta/--gtf flags
 }
 
 _PURECN_SNP_BLACKLIST_URL = "https://raw.githubusercontent.com/tylergross97/nextflow_purecn/refs/heads/main/tests/data/hg38_encode_blacklist.bed"
