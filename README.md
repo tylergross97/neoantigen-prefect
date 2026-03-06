@@ -20,21 +20,39 @@ All heavy compute runs on AWS Batch through Seqera Platform — the Prefect flow
 
 ## Pipeline DAG
 
-```
-WES FASTQs (tumor + normal)
-  ├── nf-core/sarek (1)          somatic variant calling — Mutect2, CNVkit, VEP
-  └── nf-core/hlatyping (2)      HLA class I typing — OptiType (normal reads only)
+```mermaid
+flowchart TD
+    WES["WES FASTQs\n(tumor + normal)"]
+    RNA["RNA-seq FASTQs\n(tumor)"]
 
-RNA-seq FASTQs (tumor)
-  └── nf-core/rnaseq (3)         transcript quantification — STAR-Salmon
+    WES --> sarek["1 · nf-core/sarek\nMutect2 · CNVkit · VEP"]
+    WES --> hlatyping["2 · nf-core/hlatyping\nOptiType — normal reads"]
+    RNA --> rnaseq["3 · nf-core/rnaseq\nSTAR-Salmon"]
 
-sarek + rnaseq ──► vcf-expression-annotator (4)   annotate VCF with TPM expression
-sarek          ──► nextflow-purecn (6)              tumor purity & CCF estimation
+    sarek -->|"VEP VCF"| vcfannot["4 · vcf-expression-annotator\nannotate VCF with TPM"]
+    rnaseq -->|"transcript counts TSV"| vcfannot
 
-vcf-expression-annotator + hlatyping ──► nf-core/epitopeprediction (5)   MHC-I binding
+    sarek -->|"CNS · CNR · VCF"| purecn["6 · nextflow-purecn\ntumor purity & CCF"]
 
-epitopeprediction + vcf-expression-annotator + nextflow-purecn
-  └──► post-processing (7+8)     merge binding predictions, join CCF, prioritise neoantigens
+    vcfannot -->|"expression-annotated VCF"| epipred["5 · nf-core/epitopeprediction\nMHC-I binding predictions"]
+    hlatyping -->|"HLA alleles"| epipred
+
+    epipred -->|"binding TSV"| postproc["7+8 · post-processing\nmerge · join CCF · prioritise"]
+    vcfannot -->|"variants CSV"| postproc
+    purecn -->|"CCF CSV"| postproc
+
+    postproc --> out["Prioritised Neoantigens\nS3 output"]
+
+    style WES fill:#dbeafe,stroke:#3b82f6
+    style RNA fill:#dbeafe,stroke:#3b82f6
+    style out fill:#dcfce7,stroke:#16a34a
+    style sarek fill:#fef9c3,stroke:#ca8a04
+    style hlatyping fill:#fef9c3,stroke:#ca8a04
+    style rnaseq fill:#fef9c3,stroke:#ca8a04
+    style vcfannot fill:#fef9c3,stroke:#ca8a04
+    style purecn fill:#fef9c3,stroke:#ca8a04
+    style epipred fill:#fef9c3,stroke:#ca8a04
+    style postproc fill:#fef9c3,stroke:#ca8a04
 ```
 
 Steps 1, 2, and 3 launch in parallel. Steps 4 and 6 run in parallel after sarek. Step 5 runs after 4 and 2. Steps 7+8 run after 5, 4, and 6.
