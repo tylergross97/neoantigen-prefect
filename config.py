@@ -103,11 +103,12 @@ class PipelineIds:
 def sarek_vep_vcf(outdir: str, tumor_sample: str, normal_sample: str) -> str:
     """VEP-annotated VCF produced by nf-core/sarek (somatic tumor-vs-normal).
 
-    sarek v3.5.1 publishes to:
-      annotation/vep/{tumor}_vs_{normal}/{tumor}_vs_{normal}.mutect2.filtered_VEP.ann.vcf.gz
+    sarek v3.5.1 publishDir uses ${meta.variantcaller}/${meta.id}/ where
+    meta.variantcaller='mutect2' (set in bam_variant_calling_somatic_mutect2).
+    Path: annotation/mutect2/{tumor}_vs_{normal}/{tumor}_vs_{normal}.mutect2.filtered_VEP.ann.vcf.gz
     """
     vs = f"{tumor_sample}_vs_{normal_sample}"
-    return f"{outdir}/annotation/vep/{vs}/{vs}.mutect2.filtered_VEP.ann.vcf.gz"
+    return f"{outdir}/annotation/mutect2/{vs}/{vs}.mutect2.filtered_VEP.ann.vcf.gz"
 
 
 def sarek_cnvkit_cns(outdir: str, tumor_sample: str, normal_sample: str) -> str:
@@ -143,14 +144,21 @@ def rnaseq_transcript_counts_tsv(outdir: str) -> str:
     return f"{outdir}/star_salmon/salmon.merged.transcript_counts.tsv"
 
 
-def vcf_expr_annotated_vcf(outdir: str) -> str:
-    """Expression-annotated VCF (VCF format) from vcf-expression-annotator."""
-    return f"{outdir}/output.vcf.gz"
+def vcf_expr_annotated_vcf(outdir: str, patient_id: str, sample_id: str) -> str:
+    """Expression-annotated VCF from vcf-expression-annotator.
+
+    Published to: {outdir}/vcf_expression_annotator/{patient_id}{sample_id}.expression_vep.chr22.vcf.gz
+    Note: 'chr22' is hardcoded in the pipeline output filename regardless of input scope.
+    """
+    return f"{outdir}/vcf_expression_annotator/{patient_id}{sample_id}.expression_vep.chr22.vcf.gz"
 
 
-def vcf_expr_annotated_csv(outdir: str) -> str:
-    """Expression-annotated VCF (CSV format) from vcf-expression-annotator."""
-    return f"{outdir}/output.csv"
+def vcf_expr_annotated_csv(outdir: str, patient_id: str, sample_id: str) -> str:
+    """Expression-annotated variants CSV from vcf-expression-annotator.
+
+    Published to: {outdir}/vcf_to_csv/{patient_id}{sample_id}_neoantigen.csv
+    """
+    return f"{outdir}/vcf_to_csv/{patient_id}{sample_id}_neoantigen.csv"
 
 
 def epitopeprediction_results(outdir: str) -> str:
@@ -165,5 +173,10 @@ def epitopeprediction_tsv(outdir: str, sample: str) -> str:
 
 
 def purecn_variants_csv(outdir: str, sample: str) -> str:
-    """Per-variant CCF table (CSV) from nextflow-purecn."""
-    return f"{outdir}/{sample}_variants.csv"
+    """Per-variant CCF table (CSV) from nextflow-purecn.
+
+    The pipeline sets outdir_purecn = {outdir_base}/purecn and publishes
+    the output directory {sample}_purecn_output/ there.
+    Full path: {outdir}/purecn/{sample}_purecn_output/{sample}_variants.csv
+    """
+    return f"{outdir}/purecn/{sample}_purecn_output/{sample}_variants.csv"

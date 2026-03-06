@@ -317,6 +317,7 @@ def neoantigen_flow(
             "outdir_base": outdir("purecn"),
         },
         pre_run_script=purecn_pre_run,
+        revision="stable-hg38",
 
         wait_for=[sarek_future],
     )
@@ -331,7 +332,7 @@ def neoantigen_flow(
         run_tag=tag,
         params={
             **EPITOPEPREDICTION_PARAMS,
-            "input": vcf_expr_annotated_vcf(outdir("vcf_expression_annotator")),
+            "input": vcf_expr_annotated_vcf(outdir("vcf_expression_annotator"), vcf_expr_patient_id, vcf_expr_short_id),
             "alleles": hlatyping_result(outdir("hlatyping"), sample),
             "outdir": outdir("epitopeprediction"),
         },
@@ -353,7 +354,7 @@ def neoantigen_flow(
     pp_samplesheet_csv = (
         "sample_id,variants_expression,binding_predictions,purecn_path\n"
         f"{sample},"
-        f"{vcf_expr_annotated_csv(outdir('vcf_expression_annotator'))},"
+        f"{vcf_expr_annotated_csv(outdir('vcf_expression_annotator'), vcf_expr_patient_id, vcf_expr_short_id)},"
         f"{epitopeprediction_tsv(outdir('epitopeprediction'), sample)},"
         f"{purecn_variants_csv(outdir('purecn'), sample)}"
     )
