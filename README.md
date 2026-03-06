@@ -45,16 +45,16 @@ flowchart TD
 
     postproc --> out["Prioritised Neoantigens\nS3 output"]
 
-    style WES fill:#dbeafe,stroke:#3b82f6
-    style RNA fill:#dbeafe,stroke:#3b82f6
-    style out fill:#dcfce7,stroke:#16a34a
-    style sarek fill:#fef9c3,stroke:#ca8a04
-    style hlatyping fill:#fef9c3,stroke:#ca8a04
-    style rnaseq fill:#fef9c3,stroke:#ca8a04
-    style vcfannot fill:#fef9c3,stroke:#ca8a04
-    style purecn fill:#fef9c3,stroke:#ca8a04
-    style epipred fill:#fef9c3,stroke:#ca8a04
-    style postproc fill:#fef9c3,stroke:#ca8a04
+    style WES fill:#2563eb,stroke:#1d4ed8,color:#fff
+    style RNA fill:#2563eb,stroke:#1d4ed8,color:#fff
+    style out fill:#059669,stroke:#047857,color:#fff
+    style sarek fill:#d97706,stroke:#b45309,color:#fff
+    style hlatyping fill:#7c3aed,stroke:#6d28d9,color:#fff
+    style rnaseq fill:#2563eb,stroke:#1d4ed8,color:#fff
+    style vcfannot fill:#d97706,stroke:#b45309,color:#fff
+    style purecn fill:#d97706,stroke:#b45309,color:#fff
+    style epipred fill:#db2777,stroke:#be185d,color:#fff
+    style postproc fill:#059669,stroke:#047857,color:#fff
 ```
 
 Steps 1, 2, and 3 launch in parallel. Steps 4 and 6 run in parallel after sarek. Step 5 runs after 4 and 2. Steps 7+8 run after 5, 4, and 6.
