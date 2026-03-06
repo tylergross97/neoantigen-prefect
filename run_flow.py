@@ -68,6 +68,11 @@ def main() -> None:
         help="Tumor sample name as it appears in the sarek samplesheet",
     )
     parser.add_argument(
+        "--normal-sample",
+        required=True,
+        help="Normal sample name as it appears in the sarek samplesheet (used to build vs-name output paths)",
+    )
+    parser.add_argument(
         "--sex",
         default="XX",
         choices=["XX", "XY"],
@@ -133,6 +138,7 @@ def main() -> None:
         hlatyping_samplesheet_csv=hlatyping_csv,
         rnaseq_samplesheet_csv=rnaseq_csv,
         tumor_sample_name=args.tumor_sample,
+        normal_sample_name=args.normal_sample,
         sex=args.sex,
         run_tag=args.run_tag,
     )

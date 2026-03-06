@@ -72,11 +72,12 @@ EPITOPEPREDICTION_PARAMS: dict = {
 }
 
 PURECN_PARAMS: dict = {
-    "genome": "hg38",
-    "assay": "WES",
-    "fun_segmentation": "PSCBS",
-    "extra_commands": "--min-purity 0.1 --max-purity 1.0",
+    "fasta": "s3://ngi-igenomes/igenomes/Homo_sapiens/GATK/GRCh38/Sequence/WholeGenomeFasta/Homo_sapiens_assembly38.fasta",
+    "gtf": "s3://ngi-igenomes/igenomes/Homo_sapiens/GATK/GRCh38/Annotation/Genes/genes.gtf",
+    # snp_blacklist is set at launch time to an S3 path (HTTP URLs fail Nextflow's .exists() check)
 }
+
+_PURECN_SNP_BLACKLIST_URL = "https://raw.githubusercontent.com/tylergross97/nextflow_purecn/refs/heads/main/tests/data/hg38_encode_blacklist.bed"
 
 # ---------------------------------------------------------------------------
 
@@ -93,6 +94,7 @@ from config import (
     hlatyping_result,
     purecn_variants_csv,
     rnaseq_salmon_dir,
+    rnaseq_transcript_counts_tsv,
     sarek_cnvkit_cnr,
     sarek_cnvkit_cns,
     sarek_vep_vcf,
@@ -123,6 +125,7 @@ class NeoantigenInputs:
     hlatyping_samplesheet_csv: str        # sample,fastq_1,fastq_2,seq_type (normal reads only)
     rnaseq_samplesheet_csv: str
     tumor_sample_name: str
+    normal_sample_name: str               # used to build sarek vs-name output paths
     sex: str = "XX"                       # XX or XY — used in sarek WES samplesheet
     run_tag: str = field(default="")      # optional, defaults to patient_id + date
 
@@ -160,6 +163,7 @@ def neoantigen_flow(
     pid = inputs.patient_id
     tag = inputs.run_tag
     sample = inputs.tumor_sample_name
+    normal = inputs.normal_sample_name
 
     def outdir(step: str) -> str:
         return seqera_cfg.outdir(pid, step)
@@ -184,9 +188,12 @@ def neoantigen_flow(
         )
 
     ss_base = f"{seqera_cfg.base_outdir}/{pid}/samplesheets"
-    wes_s3      = f"{ss_base}/wes.csv"
-    hla_s3      = f"{ss_base}/hlatyping.csv"
-    rnaseq_s3   = f"{ss_base}/rnaseq.csv"
+    wes_s3          = f"{ss_base}/wes.csv"
+    hla_s3          = f"{ss_base}/hlatyping.csv"
+    rnaseq_s3       = f"{ss_base}/rnaseq.csv"
+    vcf_expr_ss_s3  = f"{ss_base}/vcf_expression_annotator.csv"
+    purecn_ss_s3    = f"{ss_base}/purecn.csv"
+    purecn_blacklist_s3 = f"{seqera_cfg.base_outdir}/references/hg38_encode_blacklist.bed"
 
     logger.info(f"Starting neoantigen pipeline for patient={pid}, tag={tag}")
 
@@ -229,7 +236,7 @@ def neoantigen_flow(
             "outdir": outdir("hlatyping"),
         },
         pre_run_script=_upload_script(inputs.hlatyping_samplesheet_csv, hla_s3),
-        revision="2.2.0",
+        # revision omitted — uses whatever is saved in the launchpad entry (master)
         # Fusion disabled via launchpad configText (fusion { enabled = false }) to fix
         # YARA_MAPPER seqan async I/O crash on the Fusion FUSE filesystem.
         launch_delay_seconds=5,
@@ -255,23 +262,49 @@ def neoantigen_flow(
     # Depends on: step 1 (VEP VCF), step 3 (salmon expression)
     # Runs in parallel with step 6 (PureCN) after sarek finishes.
 
+    # patient_id strips the "{pid}_" prefix from rnaseq sample names when
+    # splitting salmon.merged.transcript_counts.tsv into per-sample files.
+    # e.g. "PID262622_T" → strip "PID262622_" → sample_id "T"
+    vcf_expr_patient_id = f"{pid}_"
+    vcf_expr_short_id = sample[len(pid) + 1:]  # e.g. "T"
+    vcf_expr_ss_csv = (
+        "sample_id,vcf_path,vcf_tumor_sample\n"
+        f"{vcf_expr_short_id},"
+        f"{sarek_vep_vcf(outdir('sarek'), sample, normal)},"
+        f"{sample}"
+    )
+
     vcf_annot_future = run_pipeline.submit(
         cfg=seqera_cfg,
         pipeline_id=pipeline_ids.vcf_expression_annotator,
         pipeline_name="vcf-expression-annotator",
         run_tag=tag,
         params={
-            "vcf": sarek_vep_vcf(outdir("sarek"), sample),
-            "expression_dir": rnaseq_salmon_dir(outdir("rnaseq")),
+            "patient_id": vcf_expr_patient_id,
+            "samplesheet": vcf_expr_ss_s3,
+            "transcript_counts": rnaseq_transcript_counts_tsv(outdir("rnaseq")),
             "outdir": outdir("vcf_expression_annotator"),
-            "sample": sample,
         },
+        pre_run_script=_upload_script(vcf_expr_ss_csv, vcf_expr_ss_s3),
 
         wait_for=[sarek_future, rnaseq_future],
     )
 
     # ── Step 6: PureCN (waits for sarek only) ──────────────────────────────
     # Runs in parallel with steps 4 and 5.
+
+    purecn_ss_csv = (
+        "sample_id,tumor_cns,tumor_cnr,vcf\n"
+        f"{sample},"
+        f"{sarek_cnvkit_cns(outdir('sarek'), sample, normal)},"
+        f"{sarek_cnvkit_cnr(outdir('sarek'), sample, normal)},"
+        f"{sarek_vep_vcf(outdir('sarek'), sample, normal)}"
+    )
+
+    purecn_pre_run = (
+        _upload_script(purecn_ss_csv, purecn_ss_s3)
+        + f"\ncurl -sL '{_PURECN_SNP_BLACKLIST_URL}' | aws s3 cp - '{purecn_blacklist_s3}'"
+    )
 
     purecn_future = run_pipeline.submit(
         cfg=seqera_cfg,
@@ -280,12 +313,11 @@ def neoantigen_flow(
         run_tag=tag,
         params={
             **PURECN_PARAMS,
-            "vcf": sarek_vep_vcf(outdir("sarek"), sample),
-            "cns": sarek_cnvkit_cns(outdir("sarek"), sample),
-            "cnr": sarek_cnvkit_cnr(outdir("sarek"), sample),
-            "outdir": outdir("purecn"),
-            "sample": sample,
+            "snp_blacklist": purecn_blacklist_s3,
+            "samplesheet": purecn_ss_s3,
+            "outdir_base": outdir("purecn"),
         },
+        pre_run_script=purecn_pre_run,
 
         wait_for=[sarek_future],
     )

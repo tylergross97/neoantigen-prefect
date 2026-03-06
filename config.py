@@ -63,7 +63,7 @@ class PipelineIds:
     sarek: int | None = 63782075010441              # nf-core/sarek
 
     # Step 2 — HLA class I typing (WES reads)
-    hlatyping: int | None = 80345911577300          # nf-core/hlatyping
+    hlatyping: int | None = 90243648955829          # nf-core/hlatyping
 
     # Step 3 — RNA-seq quantification
     rnaseq: int | None = 62172493141868             # nf-core/rnaseq
@@ -100,17 +100,32 @@ class PipelineIds:
 # Adjust if your pipeline configurations deviate from nf-core defaults.
 # ---------------------------------------------------------------------------
 
-def sarek_vep_vcf(outdir: str, sample: str) -> str:
-    """VEP-annotated VCF produced by nf-core/sarek."""
-    return f"{outdir}/annotation/{sample}/vep/{sample}.ann.vcf.gz"
+def sarek_vep_vcf(outdir: str, tumor_sample: str, normal_sample: str) -> str:
+    """VEP-annotated VCF produced by nf-core/sarek (somatic tumor-vs-normal).
+
+    sarek v3.5.1 publishes to:
+      annotation/vep/{tumor}_vs_{normal}/{tumor}_vs_{normal}.mutect2.filtered_VEP.ann.vcf.gz
+    """
+    vs = f"{tumor_sample}_vs_{normal_sample}"
+    return f"{outdir}/annotation/vep/{vs}/{vs}.mutect2.filtered_VEP.ann.vcf.gz"
 
 
-def sarek_cnvkit_cns(outdir: str, sample: str) -> str:
-    return f"{outdir}/cnvkit/{sample}.cns"
+def sarek_cnvkit_cns(outdir: str, tumor_sample: str, normal_sample: str) -> str:
+    """CNVkit .cns file published by nf-core/sarek v3.5.1.
+
+    Published to: variant_calling/cnvkit/{tumor}_vs_{normal}/{tumor}.cns
+    """
+    vs = f"{tumor_sample}_vs_{normal_sample}"
+    return f"{outdir}/variant_calling/cnvkit/{vs}/{tumor_sample}.cns"
 
 
-def sarek_cnvkit_cnr(outdir: str, sample: str) -> str:
-    return f"{outdir}/cnvkit/{sample}.cnr"
+def sarek_cnvkit_cnr(outdir: str, tumor_sample: str, normal_sample: str) -> str:
+    """CNVkit .cnr file published by nf-core/sarek v3.5.1.
+
+    Published to: variant_calling/cnvkit/{tumor}_vs_{normal}/{tumor}.cnr
+    """
+    vs = f"{tumor_sample}_vs_{normal_sample}"
+    return f"{outdir}/variant_calling/cnvkit/{vs}/{tumor_sample}.cnr"
 
 
 def hlatyping_result(outdir: str, sample: str) -> str:
@@ -121,6 +136,11 @@ def hlatyping_result(outdir: str, sample: str) -> str:
 def rnaseq_salmon_dir(outdir: str) -> str:
     """star_salmon output directory from nf-core/rnaseq."""
     return f"{outdir}/star_salmon"
+
+
+def rnaseq_transcript_counts_tsv(outdir: str) -> str:
+    """Merged transcript-level counts TSV from nf-core/rnaseq star_salmon."""
+    return f"{outdir}/star_salmon/salmon.merged.transcript_counts.tsv"
 
 
 def vcf_expr_annotated_vcf(outdir: str) -> str:
