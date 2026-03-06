@@ -68,7 +68,7 @@ The following pipelines must be added to your Seqera workspace before running. I
 | Step | Pipeline | Version | Source |
 |------|----------|---------|--------|
 | 1 | nf-core/sarek | 3.5.1 | https://github.com/nf-core/sarek |
-| 2 | nf-core/hlatyping | 2.2.0 | https://github.com/nf-core/hlatyping |
+| 2 | nf-core/hlatyping | master | https://github.com/tylergross97/hlatyping |
 | 3 | nf-core/rnaseq | latest | https://github.com/nf-core/rnaseq |
 | 4 | vcf-expression-annotator | latest | https://github.com/tylergross97/vcf_expression_annotation |
 | 5 | nf-core/epitopeprediction | latest | https://github.com/nf-core/epitopeprediction |
@@ -79,7 +79,7 @@ The following pipelines must be added to your Seqera workspace before running. I
 
 **nf-core/sarek**: Pin revision to `3.5.1`. Earlier versions have a `Channel.empty([[]])` incompatibility with Nextflow ≥25.10.
 
-**nf-core/hlatyping**: Pin revision to `2.2.0`. Add the following to the launchpad configText to disable Seqera Fusion for this pipeline — YARA_MAPPER (seqan-based) uses async file I/O (`fallocate`/`resize`) that is incompatible with the Fusion FUSE filesystem:
+**nf-core/hlatyping**: Use the custom fork at `https://github.com/tylergross97/hlatyping` (revision `master`). This fork patches Nextflow ≥25.x compatibility. Add the following to the launchpad configText to disable Seqera Fusion — YARA_MAPPER (seqan-based) uses async file I/O (`fallocate`/`resize`) that is incompatible with the Fusion FUSE filesystem:
 
 ```groovy
 fusion {
@@ -131,7 +131,7 @@ If you're using a different workspace, add each pipeline to your Seqera launchpa
 @dataclass
 class PipelineIds:
     sarek: int | None = 63782075010441
-    hlatyping: int | None = 80345911577300
+    hlatyping: int | None = 90243648955829
     rnaseq: int | None = 62172493141868
     vcf_expression_annotator: int | None = 66496502716200
     epitopeprediction: int | None = 166495825050255
@@ -174,7 +174,8 @@ python run_flow.py \
   --wes-samplesheet samplesheets/PID001_wes.csv \
   --hlatyping-samplesheet samplesheets/PID001_hlatyping.csv \
   --rnaseq-samplesheet samplesheets/PID001_rnaseq.csv \
-  --tumor-sample PID001_T_vs_PID001_N \
+  --tumor-sample PID001_T \
+  --normal-sample PID001_N \
   --sex XX
 ```
 
@@ -184,7 +185,8 @@ python run_flow.py \
 | `--wes-samplesheet` | yes | Path to sarek-format WES CSV |
 | `--hlatyping-samplesheet` | yes | Path to hlatyping-format CSV (normal reads only) |
 | `--rnaseq-samplesheet` | yes | Path to rnaseq-format CSV |
-| `--tumor-sample` | yes | Tumor sample name as used by sarek (e.g. `PID001_T_vs_PID001_N`) |
+| `--tumor-sample` | yes | Tumor sample name as it appears in the sarek samplesheet (e.g. `PID001_T`) |
+| `--normal-sample` | yes | Normal sample name as it appears in the sarek samplesheet (e.g. `PID001_N`) |
 | `--sex` | no | `XX` or `XY` (default: `XX`) |
 | `--run-tag` | no | Short label appended to run names (default: patient ID + UTC date) |
 | `--resume-workflow` | no | `PIPELINE_NAME:WORKFLOW_ID` — resume from an existing run (repeatable) |
@@ -196,6 +198,8 @@ If a flow run fails partway through, you can resume each pipeline from its last 
 ```bash
 python run_flow.py \
   --patient-id PID001 \
+  --tumor-sample PID001_T \
+  --normal-sample PID001_N \
   ... \
   --resume-workflow "nf-core/sarek:5Zpxj5YTfyiacx" \
   --resume-workflow "nf-core/rnaseq:qzhhZjJ00GctM"
@@ -242,6 +246,8 @@ Samplesheets are written to `SEQERA_BASE_OUTDIR/{patient_id}/samplesheets/` on S
 ## Architecture Notes
 
 - **Samplesheet delivery**: samplesheets are written to S3 via bash heredoc pre-run scripts that execute on the Seqera compute head node before Nextflow starts. This avoids nf-schema `^\S+\.csv$` validation failures that occur with dataset:// or API HTTPS URLs. The pre-run scripts are sourced (not subprocess-executed) by `nf-launcher.sh`, so `set -u` must not be used.
+- **sarek output paths**: nf-core/sarek v3.5.1 uses a `{tumor}_vs_{normal}` naming convention for somatic variant calling outputs. VEP-annotated VCFs land at `annotation/vep/{T}_vs_{N}/{T}_vs_{N}.mutect2.filtered_VEP.ann.vcf.gz`; CNVkit files at `variant_calling/cnvkit/{T}_vs_{N}/{T}.cns` and `.cnr`. Both `--tumor-sample` and `--normal-sample` are required to construct these paths.
+- **PureCN S3 path handling**: the `nextflow_purecn` pipeline's `resolveFilePath` helper and `validateParameters` were patched to handle `s3://` URIs (in addition to absolute and relative local paths). Without this fix the `.exists()` check always fails for S3 inputs.
 - **Prefect tasks** run in worker threads. Parallelism is achieved by submitting tasks with `.submit()` and resolving futures with `.result()` at dependency boundaries.
 - **Resume mechanism**: on Prefect retry, `tasks.py` passes the failed run's workflowId as `resume_from_workflow_id` to `SeqeraClient.launch_pipeline()`, which calls `GET /workflow/{id}/launch` to get the workflow-entity launchId and sessionId. Using the pipeline-entity launchId with `resume=true` returns a 400 error from Seqera.
 - **Seqera API**: pipelines are launched via `POST /workflow/launch?workspaceId={id}` after fetching the pipeline's saved launch config. Datasets for post-processing input are uploaded via `POST /workspaces/{id}/datasets/{id}/upload`.
