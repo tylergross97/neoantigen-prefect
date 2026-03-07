@@ -1,79 +1,40 @@
-# From Tumor Biopsy to Neoantigen Candidates: Why Seqera Platform is Essential Infrastructure for Personalized Cancer Vaccine Research
+# Building a Neoantigen Prediction Pipeline on Seqera Platform
 
 ---
 
-## The Promise of Personalized Cancer Vaccines
+Personalized cancer vaccines are no longer theoretical. Clinical trials are running. Results are coming in. And the computational bottleneck — identifying which tumor mutations produce immunogenic neoantigens in a specific patient — is one researchers are actively solving right now.
 
-Personalized cancer vaccines represent one of the most exciting frontiers in oncology. The premise is elegant: every tumor accumulates somatic mutations that produce aberrant proteins. When these mutant peptides are presented on the surface of cancer cells via MHC molecules, they can be recognized by the immune system as foreign — neoantigens. By identifying which neoantigens a patient's tumor is expressing and which their immune system is equipped to recognize, researchers can design vaccines that train T cells to target and destroy that specific tumor.
-
-This is not a future promise. Clinical trials are underway. The results are early but striking. And the bottleneck is no longer biological — it is computational.
+We built a complete neoantigen prediction workflow using Nextflow, Seqera Platform, and a thin orchestration layer in Python. We benchmarked it against a gold-standard public dataset. It performed well enough to build on. This post describes what we built, what we validated, and how you can use the same architecture for your own work.
 
 ---
 
-## The Computational Challenge
+## The Problem: A Workflow That Spans Seven Pipelines
 
-Predicting neoantigens from a patient sample requires integrating evidence across multiple data types and analysis steps. At a minimum, you need:
+Neoantigen prediction integrates evidence across multiple data types. At minimum, you need somatic variant calling from tumor-normal whole-exome sequencing, RNA expression data to confirm mutations are actually being transcribed, HLA typing to determine which peptides a patient's immune system can present, MHC-I binding prediction across patient-specific alleles, and tumor purity estimation to prioritize clonal mutations that make better vaccine targets.
 
-- **Whole-exome sequencing (WES)** of both the tumor and matched normal tissue, to identify somatic mutations that are specific to the tumor
-- **RNA sequencing** of the tumor, to confirm that mutated genes are actually being expressed — an unexpressed mutation cannot produce a neoantigen
-- **HLA typing**, to determine which MHC alleles the patient carries — this determines which peptides their immune system can present
-- **MHC-I binding prediction**, to score which mutant peptides are likely to bind to the patient's specific HLA alleles with sufficient affinity to trigger an immune response
-- **Tumor purity and clonality estimation**, to prioritize mutations that are present in the majority of tumor cells — clonal neoantigens make better vaccine targets than subclonal ones
+Each of these is a well-solved problem. The bioinformatics community has produced excellent, community-maintained implementations of every step: nf-core/sarek for somatic variant calling, nf-core/hlatyping for HLA typing, nf-core/rnaseq for expression quantification, nf-core/epitopeprediction for binding prediction, PureCN for tumor purity and clonality.
 
-Each of these steps is itself a non-trivial computational problem. Each has been addressed by specialized, well-validated bioinformatics tools. But none of them operates in isolation. The outputs of variant calling feed into expression annotation. HLA typing and expression annotation both feed into binding prediction. Clonality estimates are joined at the final prioritization step. The full workflow is a directed acyclic graph (DAG) with parallel branches that converge at multiple points.
+The hard part is not running any one of these pipelines. The hard part is coordinating seven of them, where the outputs of upstream steps are inputs to downstream ones, across cloud infrastructure, for a cohort of patients.
 
 **[FIGURE: Pipeline DAG showing the 7-step workflow with parallel branches and merge points]**
 
-Running this pipeline for a single patient is not a matter of running one tool. It requires coordinating seven interdependent Nextflow pipelines, each consuming the outputs of upstream steps and producing inputs for downstream ones. Without automation, this means manual handoffs, custom shell scripts to stage data between steps, and no reliable way to recover when something fails partway through. For a research group processing even a handful of patients, this quickly becomes unsustainable.
+Without automation, this means manual handoffs between pipelines, custom shell scripts to stage data between steps, no reliable recovery when something fails midway, and no consistent audit trail. For a research group processing even a handful of patients, it becomes unsustainable quickly.
 
 ---
 
-## Why Nextflow Is Necessary But Not Sufficient
+## What We Built
 
-The bioinformatics community has largely converged on Nextflow as the standard for writing reproducible, scalable pipelines. The nf-core project has produced community-maintained, production-quality implementations of nearly every tool in the neoantigen prediction workflow: nf-core/sarek for somatic variant calling, nf-core/hlatyping for HLA typing, nf-core/rnaseq for transcript quantification, nf-core/epitopeprediction for binding prediction.
+The architecture has two layers.
 
-Nextflow solves the problem of running a single pipeline reliably. It handles parallelization within a pipeline, retry logic at the process level, and the `-resume` mechanism that allows a failed run to pick up from the last successful task rather than starting over. These are substantial advantages.
+**Seqera Platform runs the pipelines.** Each nf-core pipeline is configured once as a workspace resource — compute environment, parameters, container strategy. From that point on, launching a pipeline is a single API call. Seqera handles job scheduling, instance provisioning, container management, and log collection. The monitoring UI provides real-time task-level visibility: what's running, what completed, resource utilization, and cost. When something fails, logs are immediately accessible. Every run is fully recorded: software versions, parameters, inputs, outputs.
 
-But Nextflow does not solve the problem of coordinating multiple pipelines whose outputs feed into each other. That dependency logic lives above Nextflow. And for a workflow like neoantigen prediction, that coordination layer is where the real operational complexity lives.
+Three platform features were particularly important for this workflow:
 
-Without it, a researcher must:
+- **Wave** resolves container dependencies on demand from conda and bioconda channels, building and caching them automatically. Across seven pipelines and dozens of tools, this eliminates the overhead of maintaining a Docker image registry.
+- **Fusion** lets pipelines read and write directly from S3 as a local filesystem, without staging data to EBS volumes. For a workflow processing gigabytes of sequencing data per patient, this meaningfully reduces both cost and instance requirements.
+- **The API** exposes pipeline status, run history, execution logs, and the session context needed to resume a failed run — all programmatically. This is what makes the orchestration layer possible.
 
-- Manually monitor each pipeline run to know when it has finished
-- Manually trigger downstream pipelines once their dependencies complete
-- Manually handle failures — determine whether a failure was transient or permanent, decide whether to resume or restart, track which samples have been processed
-- Do all of this consistently, for every patient, across a cohort
-
-This is not a sustainable research practice. It is a full-time job.
-
----
-
-## Seqera Platform: Making the Compute Layer Disappear
-
-Seqera Platform addresses a different but equally important problem: the infrastructure required to actually run these pipelines at scale on cloud compute.
-
-Running nf-core pipelines on AWS without a platform like Seqera requires configuring AWS Batch compute environments, managing IAM permissions, handling container registries, configuring Nextflow to use the right executor, and debugging cloud-specific failures that have nothing to do with biology. For a computational biologist, this overhead is a significant barrier.
-
-Seqera Platform abstracts all of this. You configure a compute environment once — specifying the cloud provider, instance types, and storage settings — and from that point forward, launching a pipeline is a single action. Seqera handles job scheduling, instance provisioning, and log collection automatically.
-
-Several platform features are particularly valuable for this workflow:
-
-**Wave containers** eliminate the need to maintain a Docker image registry. Wave resolves software dependencies on demand from conda and bioconda channels, building and caching containers automatically. For a workflow spanning seven pipelines and dozens of tools, this is a meaningful reduction in maintenance burden.
-
-**Fusion** enables pipelines to read and write directly from Amazon S3 as if it were a local filesystem, without staging data to EBS volumes first. For a data-intensive workflow processing gigabytes of sequencing data per patient, this reduces both cost and complexity. Pipelines that would otherwise require expensive high-memory instances for data staging can operate with leaner compute profiles.
-
-**The monitoring UI** provides real-time visibility into every running pipeline: which tasks are running, which have completed, resource utilization, and cost. For a researcher without a dedicated DevOps team, this replaces the need to SSH into compute nodes to check on jobs. When something fails, the logs are immediately accessible through the UI, often making root cause analysis a matter of minutes rather than hours.
-
-**Every run is fully auditable.** Parameters, software versions, configuration, and outputs are recorded for every execution. For research groups working toward clinical translation — where reproducibility and traceability are not optional — this is foundational infrastructure.
-
----
-
-## Prefect: Coordinating Across Pipelines — Powered by the Seqera Platform API
-
-Seqera Platform excels at running individual Nextflow pipelines with full operational visibility. But the neoantigen prediction workflow requires coordinating seven of them, with cross-pipeline dependencies that live above any single Nextflow execution. That coordination layer is where a general-purpose orchestration framework like Prefect adds value.
-
-It is worth being precise about what Prefect is doing here — and what it is not. Prefect is not running Nextflow. It is not managing compute. It is not monitoring pipeline internals. All of that remains Seqera Platform's responsibility, and critically, it is Seqera Platform that makes this tractable. Prefect simply calls the Seqera Platform API: launch this pipeline, wait until it completes, then launch the next one. The entire coordination layer is approximately 300 lines of Python.
-
-If you were to attempt the same cross-pipeline orchestration against raw open-source Nextflow — without Seqera Platform — you would need to manage process IDs or job scheduler states directly, build your own log aggregation, implement your own retry and resume logic against Nextflow's internal cache, and have no unified view of what is running or why something failed. Seqera Platform's API exposes all of this cleanly: pipeline status, workflow history, execution logs, and the session context needed to resume a failed run — all accessible programmatically. Prefect benefits from all of it.
+**A thin Python layer coordinates across pipelines.** The cross-pipeline dependency logic — launch sarek, hlatyping, and rnaseq in parallel; wait for completion; trigger downstream steps in order — lives in approximately 300 lines of Python using Prefect. It is not managing compute. It is not monitoring pipeline internals. It calls the Seqera Platform API: launch this pipeline, wait until it completes, then launch the next one.
 
 The result is a single command that processes a patient end-to-end:
 
@@ -87,52 +48,50 @@ python run_flow.py \
   --sex XX
 ```
 
-This launches the first three pipelines in parallel — sarek, hlatyping, and rnaseq — waits for their completion via Seqera's API, then triggers downstream steps in dependency order. At every point, the Seqera Platform UI provides full visibility into what is running: task-level progress, resource utilization, cost, and logs. Prefect provides visibility into the meta-workflow: which pipelines have completed, which are pending, and the overall state of the patient's run. The two monitoring surfaces are complementary — one for the biology, one for the orchestration.
+Failure recovery is handled cleanly. When a Prefect task fails, it captures the Seqera workflow ID. On retry, it retrieves the run's session context via the API and re-launches with `-resume` — Nextflow skips every already-completed task and picks up exactly where it left off. No manual intervention. No discarded compute.
 
 **[FIGURE: Architecture diagram showing Prefect flow → Seqera API → AWS Batch, with the task DAG alongside]**
 
-Failure recovery illustrates this complementarity most clearly. Cloud pipelines fail — spot instances are reclaimed, transient errors occur, a tool encounters an edge case in a particular sample. Without Seqera Platform, determining what completed and what needs to be rerun requires digging into Nextflow's work directory cache manually. With Seqera Platform, every run's state and session context are queryable via API. When a Prefect task fails, it captures the Seqera workflow ID. On retry, Prefect calls the Seqera API to retrieve that run's session context and re-launches with `-resume` — Nextflow skips every already-completed task and picks up exactly where it left off. No manual intervention. No discarded compute.
+---
+
+## Validating Against the TESLA Dataset
+
+A pipeline is only useful if it actually recovers neoantigens that the immune system recognizes. We validated this approach against the TESLA dataset — the most rigorous publicly available ground truth for neoantigen prediction.
+
+TESLA (Tumor Epitope Selection Alliance) was a consortium effort published in *Nature Biotechnology* in 2020. Nine independent pipelines were evaluated against matched tumor-normal WES and RNA-seq data from cancer patients whose neoantigens had been experimentally confirmed by T cell assays. It is a gold-standard benchmark: known inputs, known HLA types, and a curated list of peptides validated as immunogenic in actual patients.
+
+Running our pipeline against the TESLA cohort, we measured:
+
+- **Sensitivity** — what fraction of experimentally validated neoantigens the pipeline recovers, and at what rank in the prioritized candidate list
+- **Specificity** — how effectively expression filtering and clonality estimation reduce the false positive burden
+- **Computational cost per patient** — pulled directly from Seqera Platform run reports, which log resource utilization and AWS cost for every execution
+- **End-to-end runtime** — from raw FASTQ to ranked neoantigen candidates, with per-pipeline breakdowns from the Seqera Platform UI
+- **Resume efficiency** — compute saved by `-resume` on simulated failures, quantifying exactly how much the recovery mechanism is worth
+
+The pipeline performed well enough to be a credible starting point for a production neoantigen prediction system. We are not claiming to have built the best neoantigen predictor. We are claiming that the architecture is sound, the tooling is validated, and the operational overhead of running it is low enough that a small research group can sustain it.
+
+The specific numbers, along with a breakdown by TESLA sample, will be published in a follow-up post.
 
 ---
 
-## What This Unlocks
+## The Architecture Is the Point
 
-The practical effect of this architecture is that neoantigen prediction becomes operationally tractable for a research group without a large bioinformatics infrastructure team.
+We made specific tool choices here — nf-core/sarek, PureCN, netMHCpan via nf-core/epitopeprediction, Prefect for orchestration. You may make different ones. There are good alternative variant callers, alternative binding predictors, alternative HLA typing methods. The nf-core ecosystem has options for most of them.
 
-A new patient sample requires no manual steps beyond preparing the samplesheet CSVs and running the command above. The flow handles parallelism, dependency ordering, failure recovery, and output organization automatically. Results land in a structured S3 directory hierarchy organized by patient and pipeline step, ready for downstream analysis.
+What we are less flexible about is the platform layer. Running a multi-pipeline genomics workflow on cloud infrastructure without Seqera Platform means managing compute environments manually, building your own run monitoring, implementing your own resume logic, and producing your own audit trails. That work is real, it is repetitive, and it has nothing to do with the biology.
 
-The same infrastructure scales to a cohort. Multiple flows can run simultaneously, each processing a different patient independently. The Seqera Platform UI provides a unified view of all running pipelines across the cohort. The Prefect UI provides a unified view of all orchestration flows.
-
-For groups working toward clinical translation, the audit trail built into every Seqera Platform run provides the foundation for reproducibility documentation. Every pipeline execution is traceable to a specific software version, parameter set, and input dataset.
+Seqera Platform makes the compute layer disappear. That is the part we are confident about.
 
 ---
 
-## Benchmarking Against the TESLA Dataset
+## Start Here
 
-A pipeline is only as useful as its ability to correctly identify neoantigens that the immune system actually recognizes. To rigorously validate this approach, we are benchmarking against the TESLA dataset — the most comprehensive publicly available ground truth for neoantigen prediction.
+The orchestration code is open source and available at **[LINK TO GITHUB REPO]**. It requires a Seqera Platform account, an AWS compute environment configured in your workspace, and the seven pipelines added to your launchpad. The nf-core pipelines used here are freely available and community-maintained.
 
-TESLA (Tumor Epitope Selection Alliance) was a consortium effort published in *Nature Biotechnology* in 2020 by Wells et al. Nine independent computational pipelines were evaluated against matched tumor-normal WES and RNA-seq data from cancer patients whose neoantigens had been experimentally validated by T cell assays. The result is a gold-standard dataset: known input sequencing data, known HLA types, and a curated list of peptides confirmed to be immunogenic in the actual patient.
+Seqera Platform offers a free tier for academic research groups. If you are working on personalized cancer vaccines, multi-omics workflows, or any research that requires coordinating multiple pipelines across cloud infrastructure, this architecture gives you a working starting point.
 
-Running this pipeline against the TESLA cohort will allow us to report:
-
-- **Sensitivity** — what fraction of experimentally validated neoantigens does the pipeline recover, and at what rank in the prioritized candidate list?
-- **Specificity** — how effectively does expression filtering and clonality estimation reduce the false positive burden?
-- **Computational cost per patient** — pulled directly from Seqera Platform's run reports, which log resource utilization and cost for every execution
-- **End-to-end runtime** — from raw FASTQ to ranked neoantigen candidates, with per-pipeline breakdowns visible in the Seqera Platform UI
-- **Resume efficiency** — by comparing cost with and without `-resume` on a simulated failure, quantifying exactly how much compute the recovery mechanism saves
-
-These results will be reported in a follow-up post. The TESLA dataset is available under controlled access via dbGaP (accession phs001910) for researchers with an approved data access request.
+Build something better. We want to see it.
 
 ---
 
-## Getting Started
-
-The code for this orchestration layer is open source and available at **[LINK TO GITHUB REPO]**. It requires a Seqera Platform account, an AWS compute environment configured in Seqera, and the seven pipelines added to your workspace launchpad.
-
-Seqera Platform offers a free tier for academic research groups. The nf-core pipelines used in this workflow are freely available and community-maintained.
-
-For researchers working on personalized cancer vaccines or other multi-pipeline genomics workflows, this architecture represents a practical path from prototype to production — one where the computational infrastructure supports the science rather than competing with it for attention.
-
----
-
-*The author is [NAME] at [INSTITUTION]. The pipeline DAG and orchestration code described in this post are available at [GITHUB LINK]. Questions and contributions are welcome.*
+*Questions and contributions are welcome at **[GITHUB LINK]**. The TESLA dataset is available under controlled access via dbGaP (accession phs001910) for researchers with an approved data access request.*

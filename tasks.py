@@ -80,8 +80,6 @@ _LAST_WORKFLOW_IDS: dict[str, str] = {}
 @task(
     name="run-pipeline",
     task_run_name="run-{pipeline_name}-{run_tag}",
-    retries=1,                # retry the entire launch+poll once on unexpected failure
-    retry_delay_seconds=120,
     timeout_seconds=172_800,  # 48 h hard ceiling
 )
 def run_pipeline(

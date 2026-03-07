@@ -11,7 +11,7 @@ This repo contains no Nextflow code itself. It acts as a supervisor that:
 1. Writes per-patient samplesheets to S3 via pre-run scripts (executed on the compute head node before Nextflow starts)
 2. Launches 7 Nextflow pipelines in the correct dependency order via the Seqera Platform API
 3. Polls each run until completion before triggering downstream steps
-4. Supports automatic `-resume` on Prefect retries and manual resume seeding via `--resume-workflow`
+4. Supports manual resume seeding via `--resume-workflow` to skip completed pipelines on re-runs
 5. Returns the final S3 output path
 
 All heavy compute runs on AWS Batch through Seqera Platform — the Prefect flow runs locally (or in Prefect Cloud) and just orchestrates API calls.
@@ -29,7 +29,7 @@ flowchart TD
 
     WES --> sarek["1 · nf-core/sarek<br/>Mutect2 · CNVkit · VEP"]
     WES --> hlatyping["2 · nf-core/hlatyping<br/>OptiType — normal reads"]
-    RNA --> rnaseq["3 · nf-core/rnaseq<br/>STAR-Salmon"]
+    RNA --> rnaseq["3 · nf-core/rnaseq<br/>Salmon pseudo-alignment"]
 
     sarek -->|"VEP VCF"| vcfannot["4 · vcf-expression-annotator<br/>annotate VCF with TPM"]
     rnaseq -->|"transcript counts TSV"| vcfannot
@@ -74,6 +74,10 @@ neoantigen-prefect/
 │   ├── PID262622_wes.csv
 │   ├── PID262622_hlatyping.csv
 │   └── PID262622_rnaseq.csv
+├── tests/
+│   ├── test_client.py      # SeqeraClient unit tests (HTTP mocked with respx)
+│   ├── test_tasks.py       # Task utilities + pipeline parameter correctness
+│   └── test_config.py      # Output path helpers + dataclass validation
 ├── pyproject.toml
 ├── .env.example
 └── README.md
@@ -88,7 +92,7 @@ The following pipelines must be added to your Seqera workspace before running. I
 | Step | Pipeline | Version | Source |
 |------|----------|---------|--------|
 | 1 | nf-core/sarek | 3.5.1 | https://github.com/nf-core/sarek |
-| 2 | nf-core/hlatyping | master | https://github.com/tylergross97/hlatyping |
+| 2 | hlatyping | 2.2.0 | https://github.com/nf-core/hlatyping |
 | 3 | nf-core/rnaseq | latest | https://github.com/nf-core/rnaseq |
 | 4 | vcf-expression-annotator | latest | https://github.com/tylergross97/vcf_expression_annotation |
 | 5 | nf-core/epitopeprediction | latest | https://github.com/nf-core/epitopeprediction |
@@ -99,16 +103,7 @@ The following pipelines must be added to your Seqera workspace before running. I
 
 **nf-core/sarek**: Pin revision to `3.5.1`. Earlier versions have a `Channel.empty([[]])` incompatibility with Nextflow ≥25.10.
 
-**nf-core/hlatyping**: Use the custom fork at `https://github.com/tylergross97/hlatyping` (revision `master`). This fork patches Nextflow ≥25.x compatibility. Add the following to the launchpad configText to disable Seqera Fusion — YARA_MAPPER (seqan-based) uses async file I/O (`fallocate`/`resize`) that is incompatible with the Fusion FUSE filesystem:
-
-```groovy
-fusion {
-    enabled = false
-}
-wave {
-    enabled = true
-}
-```
+**hlatyping**: Use nf-core/hlatyping revision `2.2.0`. Fusion is supported — YARA_MAPPER works correctly with Fusion 2.5, which is set in the pipeline's custom config in Seqera Platform.
 
 ---
 
@@ -227,7 +222,7 @@ python run_flow.py \
 
 Pipelines not listed will start fresh. The resume uses `GET /workflow/{id}/launch` to obtain the correct workflow-entity launchId and embedded sessionId — this is required because Seqera rejects `resume=true` when the launchId has `entity=pipeline`.
 
-Automatic resume also occurs on Prefect task retries: if a pipeline fails during a run, the task captures its workflowId and uses it for resume on the next Prefect retry attempt.
+The `run_pipeline` task has no Prefect retries. If a pipeline fails, re-run `run_flow.py` with `--resume-workflow` flags for any pipelines that completed or partially completed.
 
 ### Override pipeline IDs at runtime
 
@@ -266,12 +261,74 @@ Samplesheets are written to `SEQERA_BASE_OUTDIR/{patient_id}/samplesheets/` on S
 ## Architecture Notes
 
 - **Samplesheet delivery**: samplesheets are written to S3 via bash heredoc pre-run scripts that execute on the Seqera compute head node before Nextflow starts. This avoids nf-schema `^\S+\.csv$` validation failures that occur with dataset:// or API HTTPS URLs. The pre-run scripts are sourced (not subprocess-executed) by `nf-launcher.sh`, so `set -u` must not be used.
-- **sarek output paths**: nf-core/sarek v3.5.1 uses a `{tumor}_vs_{normal}` naming convention for somatic variant calling outputs. VEP-annotated VCFs land at `annotation/vep/{T}_vs_{N}/{T}_vs_{N}.mutect2.filtered_VEP.ann.vcf.gz`; CNVkit files at `variant_calling/cnvkit/{T}_vs_{N}/{T}.cns` and `.cnr`. Both `--tumor-sample` and `--normal-sample` are required to construct these paths.
+- **sarek output paths**: nf-core/sarek v3.5.1 uses a `{tumor}_vs_{normal}` naming convention for somatic variant calling outputs. VEP-annotated VCFs land at `annotation/mutect2/{T}_vs_{N}/{T}_vs_{N}.mutect2.filtered_VEP.ann.vcf.gz` (publishDir uses `${meta.variantcaller}` = `mutect2`, not `vep`); CNVkit files at `variant_calling/cnvkit/{T}_vs_{N}/{T}.cns` and `.cnr`. Both `--tumor-sample` and `--normal-sample` are required to construct these paths.
 - **PureCN S3 path handling**: the `nextflow_purecn` pipeline's `resolveFilePath` helper and `validateParameters` were patched to handle `s3://` URIs (in addition to absolute and relative local paths). Without this fix the `.exists()` check always fails for S3 inputs.
 - **Prefect tasks** run in worker threads. Parallelism is achieved by submitting tasks with `.submit()` and resolving futures with `.result()` at dependency boundaries.
-- **Resume mechanism**: on Prefect retry, `tasks.py` passes the failed run's workflowId as `resume_from_workflow_id` to `SeqeraClient.launch_pipeline()`, which calls `GET /workflow/{id}/launch` to get the workflow-entity launchId and sessionId. Using the pipeline-entity launchId with `resume=true` returns a 400 error from Seqera.
+- **Resume mechanism**: `--resume-workflow PIPELINE_NAME:WORKFLOW_ID` pre-seeds `tasks._LAST_WORKFLOW_IDS`, which `run_pipeline` picks up to call `GET /workflow/{id}/launch` to fetch the workflow-entity launchId and sessionId, then launches with `resume=True`. Using the pipeline-entity launchId with `resume=true` returns a 400 error from Seqera — the workflow-entity launchId is required.
 - **Seqera API**: pipelines are launched via `POST /workflow/launch?workspaceId={id}` after fetching the pipeline's saved launch config. Datasets for post-processing input are uploaded via `POST /workspaces/{id}/datasets/{id}/upload`.
 - **No caching** on dataset upload tasks — Seqera datasets are cheap to create and caching caused stale references after deletion.
+
+---
+
+## Testing
+
+Tests live in `tests/` and use `pytest`. There are no external service calls — all HTTP is mocked with `respx`.
+
+```bash
+uv run pytest tests/ -v
+# or
+pytest tests/ -v
+```
+
+### `tests/test_client.py`
+
+Unit tests for `SeqeraClient` (the low-level Seqera Platform REST client). Every HTTP call is intercepted with `respx` so no real API token is needed.
+
+| Test | What it verifies |
+|------|-----------------|
+| `test_create_dataset_success` | `POST /workspaces/{id}/datasets` returns the new dataset ID |
+| `test_create_dataset_409_returns_existing` | 409 conflict falls back to `GET /datasets` to find the existing ID by name, rather than raising |
+| `test_launch_pipeline_fresh` | Correct `POST /workflow/launch` payload: `resume=False`, `runName` set, `paramsText` JSON-serialized |
+| `test_launch_pipeline_fresh_no_inherited_profiles` | `configProfiles` from the launchpad template are stripped — inheriting profiles (e.g. `test`) would override production settings |
+| `test_launch_pipeline_resume` | Resume path calls `GET /workflow/{id}/launch` to fetch the workflow-entity `launchId` and `sessionId`, sets `resume=True`, omits `runName` — Seqera returns 400 if the pipeline-entity launchId is used instead |
+| `test_poll_succeeds_immediately` | `SUCCEEDED` status is returned without raising |
+| `test_poll_raises_on_failure` | Any non-SUCCEEDED terminal status raises `RuntimeError` |
+| `test_poll_tolerates_transient_errors` | Up to `max_consecutive_errors - 1` network errors are retried before raising |
+
+### `tests/test_tasks.py`
+
+Tests for task utilities and the correctness of fixed pipeline parameter dicts. These catch parameter regressions that would silently produce wrong results at runtime.
+
+| Test | What it verifies |
+|------|-----------------|
+| `test_safe_run_name_*` | `_safe_run_name` produces strings matching Seqera's regex (`^[a-z0-9][a-z0-9\-]{0,38}[a-z0-9]$`): no slashes, ≤40 chars, no consecutive or leading/trailing hyphens |
+| `test_neoantigen_inputs_auto_run_tag` | `run_tag` is auto-generated as `{patient_id}-{timestamp}` when not provided |
+| `test_neoantigen_inputs_explicit_run_tag` | Explicit `run_tag` is preserved unchanged |
+| `test_sarek_params_has_required_tools` | `SAREK_PARAMS["tools"]` contains `mutect2`, `vep`, and `cnvkit` |
+| `test_sarek_params_wes_mode` | `wes: True` is set — required for correct CNV normalisation in WES mode |
+| `test_rnaseq_params_uses_gencode_gtf` | GENCODE GTF is specified — required to produce ENST* transcript IDs that match VEP output downstream |
+| `test_rnaseq_params_no_genome_key` | `genome` key must not be set — the iGenomes `GRCh38` genome key produces internal `rna0/rna1` IDs that match nothing in the VCF |
+| `test_rnaseq_params_saves_reference` | `save_reference: True` — persists the Salmon index so it is reused across patients |
+| `test_rnaseq_params_pseudo_alignment_mode` | `pseudo_aligner=salmon`, `skip_alignment=True`, no `aligner` key — STAR alignment is disabled to save cost |
+| `test_hlatyping_no_seqtype_param` | `seqtype`/`seq_type` must not be set — removed in nf-core/hlatyping v2.x, causes pipeline failure if present |
+| `test_upload_script_format` | The S3 pre-run heredoc uses single-quoted `'SAMPLESHEET_EOF'` (prevents shell expansion of CSV content) and `aws s3 cp -` (stdin) syntax |
+
+### `tests/test_config.py`
+
+Tests for `config.py` path helpers and the `PipelineIds` / `SeqeraConfig` dataclasses. These lock in the exact S3 output path conventions assumed by each pipeline.
+
+| Test | What it verifies |
+|------|-----------------|
+| `test_sarek_vep_vcf` | `annotation/mutect2/{T}_vs_{N}/{T}_vs_{N}.mutect2.filtered_VEP.ann.vcf.gz` — sarek v3.5.1 uses `${meta.variantcaller}` = `mutect2` as the publishDir subdirectory, not `vep` |
+| `test_sarek_mutect2_filtered_vcf` | `variant_calling/mutect2/{T}_vs_{N}/{T}_vs_{N}.mutect2.filtered.vcf.gz` |
+| `test_sarek_cnvkit_cns/cnr` | `variant_calling/cnvkit/{T}_vs_{N}/{T}.cns` / `.cnr` |
+| `test_hlatyping_result` | `hlatyping/{sample}_result.tsv` |
+| `test_rnaseq_transcript_counts_tsv` | `salmon/salmon.merged.transcript_counts.tsv` |
+| `test_vcf_expr_annotated_vcf/csv` | Expression-annotated VCF and CSV output paths from vcf-expression-annotator |
+| `test_epitopeprediction_tsv` | `predictions/{sample}.tsv` |
+| `test_purecn_variants_csv` | `purecn/{sample}_purecn_output/{sample}_variants.csv` |
+| `test_seqera_config_outdir` | `SeqeraConfig.outdir()` constructs `{base_outdir}/{patient_id}/{step}` |
+| `test_pipeline_ids_validate_*` | `PipelineIds.validate()` raises `ValueError` listing all `None` IDs; passes when all are set |
 
 ---
 

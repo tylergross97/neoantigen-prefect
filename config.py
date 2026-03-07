@@ -100,6 +100,16 @@ class PipelineIds:
 # Adjust if your pipeline configurations deviate from nf-core defaults.
 # ---------------------------------------------------------------------------
 
+def sarek_mutect2_filtered_vcf(outdir: str, tumor_sample: str, normal_sample: str) -> str:
+    """Filtered (pre-VEP) Mutect2 VCF produced by nf-core/sarek.
+
+    Published to: variant_calling/mutect2/{T}_vs_{N}/{T}_vs_{N}.mutect2.filtered.vcf.gz
+    Used as PureCN --vcf input (somatic variant allele frequencies for CCF estimation).
+    """
+    vs = f"{tumor_sample}_vs_{normal_sample}"
+    return f"{outdir}/variant_calling/mutect2/{vs}/{vs}.mutect2.filtered.vcf.gz"
+
+
 def sarek_vep_vcf(outdir: str, tumor_sample: str, normal_sample: str) -> str:
     """VEP-annotated VCF produced by nf-core/sarek (somatic tumor-vs-normal).
 
@@ -130,18 +140,21 @@ def sarek_cnvkit_cnr(outdir: str, tumor_sample: str, normal_sample: str) -> str:
 
 
 def hlatyping_result(outdir: str, sample: str) -> str:
-    """HLA-I allele result file from nf-core/hlatyping."""
-    return f"{outdir}/hlatyping/{sample}_result.tsv"
+    """HLA-I allele result file from nf-core/hlatyping.
+
+    nf-core/hlatyping v2.x publishes to: optitype/{sample}/{sample}_result.tsv
+    """
+    return f"{outdir}/optitype/{sample}/{sample}_result.tsv"
 
 
 def rnaseq_salmon_dir(outdir: str) -> str:
-    """star_salmon output directory from nf-core/rnaseq."""
-    return f"{outdir}/star_salmon"
+    """salmon output directory from nf-core/rnaseq (pseudo-alignment mode)."""
+    return f"{outdir}/salmon"
 
 
 def rnaseq_transcript_counts_tsv(outdir: str) -> str:
-    """Merged transcript-level counts TSV from nf-core/rnaseq star_salmon."""
-    return f"{outdir}/star_salmon/salmon.merged.transcript_counts.tsv"
+    """Merged transcript-level counts TSV from nf-core/rnaseq (pseudo-alignment mode)."""
+    return f"{outdir}/salmon/salmon.merged.transcript_counts.tsv"
 
 
 def vcf_expr_annotated_vcf(outdir: str, patient_id: str, sample_id: str) -> str:
@@ -168,8 +181,12 @@ def epitopeprediction_results(outdir: str) -> str:
 
 def epitopeprediction_tsv(outdir: str, sample: str) -> str:
     """Merged binding predictions TSV from nf-core/epitopeprediction.
-    Adjust filename if your epitopeprediction version uses a different convention."""
-    return f"{outdir}/pipeline_results/{sample}_predictions.tsv"
+
+    Published to: {outdir}/predictions/{sample}.tsv
+    where {sample} is the 'sample' column in the epitopeprediction samplesheet
+    (= tumor_sample_name, e.g. PID262622_T).
+    """
+    return f"{outdir}/predictions/{sample}.tsv"
 
 
 def purecn_variants_csv(outdir: str, sample: str) -> str:

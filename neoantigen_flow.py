@@ -34,6 +34,7 @@ SAREK_PARAMS: dict = {
     "genome": "GATK.GRCh38",
     "tools": "mutect2,vep,cnvkit",
     "wes": True,                    # WES mode (adjusts CNV normalisation)
+    "intervals": "s3://1000g-data-link-test-eu-west-1-iwcyt6phg/neoantigen/references/Exome-Agilent_V5.bed",
     "trim_fastq": True,
     "vep_genome": "GRCh38",
     "vep_species": "homo_sapiens",
@@ -51,24 +52,29 @@ HLATYPING_PARAMS: dict = {
 }
 
 RNASEQ_PARAMS: dict = {
-    "genome": "GRCh38",
-    "aligner": "star_salmon",
-    "pseudo_aligner": "salmon",
-    "pseudo_aligner_kmer_size": 31,
-    "skip_markduplicates": False,
-    "skip_qc": False,
+    # GENCODE GRCh38 annotation produces ENST* transcript IDs that match VEP's
+    # Ensembl annotation in the sarek VCF. The "GRCh38" genome key uses the NCBI
+    # iGenomes STAR index which assigns internal rna0/rna1 IDs → 0% expression matches.
+    "fasta": "s3://ngi-igenomes/igenomes/Homo_sapiens/NCBI/GRCh38/Sequence/WholeGenomeFasta/genome.fa",
+    "gtf": "https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_44/gencode.v44.primary_assembly.annotation.gtf.gz",
+    "save_reference": True,         # saves Salmon index + transcript FASTA for reuse across patients
+    "pseudo_aligner": "salmon",     # quasi-mapping mode; skips STAR alignment entirely
+    "skip_alignment": True,         # skip STAR index build + alignment (~2h + $1.57/patient saved)
+    "skip_markduplicates": True,    # not applicable in pseudo-alignment mode
+    "skip_qc": True,                # qualimap, dupradar, rseqc not needed ($0.67 saved)
+    "skip_bigwig": True,            # bigwig files not used downstream
+    "skip_stringtie": True,         # stringtie output not used downstream
     "save_unaligned": False,
-    "deseq2_vst": True,
+    "deseq2_vst": False,            # DESeq2 VST not needed; we use raw salmon counts
 }
 
 EPITOPEPREDICTION_PARAMS: dict = {
-    "mhc_class": "I",
-    "tools": "syfpeithi,mhcflurry,mhcnuggets",
-    "min_peptide_length": 8,
-    "max_peptide_length": 11,
-    "genome": "GRCh38",
-    "proteome": "homo_sapiens",
+    "tools": "mhcflurry,mhcnuggets",
+    "genome_reference": "GRCh38",
+    "min_peptide_length_classI": 8,
+    "max_peptide_length_classI": 11,
     "wild_type": True,              # also predict WT peptides for binding delta
+    # mhc_class and alleles go in the per-sample samplesheet, not as pipeline params
 }
 
 PURECN_PARAMS: dict = {
@@ -96,6 +102,7 @@ from config import (
     rnaseq_transcript_counts_tsv,
     sarek_cnvkit_cnr,
     sarek_cnvkit_cns,
+    sarek_mutect2_filtered_vcf,
     sarek_vep_vcf,
     vcf_expr_annotated_csv,
     vcf_expr_annotated_vcf,
@@ -192,6 +199,7 @@ def neoantigen_flow(
     rnaseq_s3       = f"{ss_base}/rnaseq.csv"
     vcf_expr_ss_s3  = f"{ss_base}/vcf_expression_annotator.csv"
     purecn_ss_s3    = f"{ss_base}/purecn.csv"
+    epipred_ss_s3   = f"{ss_base}/epitopeprediction.csv"
     purecn_blacklist_s3 = f"{seqera_cfg.base_outdir}/references/hg38_encode_blacklist.bed"
 
     logger.info(f"Starting neoantigen pipeline for patient={pid}, tag={tag}")
@@ -227,7 +235,7 @@ def neoantigen_flow(
     hlatyping_future = run_pipeline.submit(
         cfg=seqera_cfg,
         pipeline_id=pipeline_ids.hlatyping,
-        pipeline_name="nf-core/hlatyping",
+        pipeline_name="hlatyping",
         run_tag=tag,
         params={
             **HLATYPING_PARAMS,
@@ -235,9 +243,7 @@ def neoantigen_flow(
             "outdir": outdir("hlatyping"),
         },
         pre_run_script=_upload_script(inputs.hlatyping_samplesheet_csv, hla_s3),
-        # revision omitted — uses whatever is saved in the launchpad entry (master)
-        # Fusion disabled via launchpad configText (fusion { enabled = false }) to fix
-        # YARA_MAPPER seqan async I/O crash on the Fusion FUSE filesystem.
+        revision="2.2.0",
         launch_delay_seconds=5,
     )
 
@@ -270,7 +276,7 @@ def neoantigen_flow(
         "sample_id,vcf_path,vcf_tumor_sample\n"
         f"{vcf_expr_short_id},"
         f"{sarek_vep_vcf(outdir('sarek'), sample, normal)},"
-        f"{sample}"
+        f"{pid}_{sample}"
     )
 
     vcf_annot_future = run_pipeline.submit(
@@ -297,7 +303,7 @@ def neoantigen_flow(
         f"{sample},"
         f"{sarek_cnvkit_cns(outdir('sarek'), sample, normal)},"
         f"{sarek_cnvkit_cnr(outdir('sarek'), sample, normal)},"
-        f"{sarek_vep_vcf(outdir('sarek'), sample, normal)}"
+        f"{sarek_mutect2_filtered_vcf(outdir('sarek'), sample, normal)}"
     )
 
     purecn_pre_run = (
@@ -324,6 +330,32 @@ def neoantigen_flow(
 
     # ── Step 5: nf-core/epitopeprediction (waits for vcf_annot + hlatyping) ─
     # Depends on: step 4 (expression-annotated VCF), step 2 (HLA alleles)
+    #
+    # epitopeprediction --input is a samplesheet CSV (sample,alleles,mhc_class,filename).
+    # alleles and mhc_class are per-sample samplesheet columns, not pipeline params.
+    # The pre-run script:
+    #   1. Downloads the hlatyping result TSV from S3
+    #   2. Strips the HLA- prefix and joins alleles with ";"
+    #   3. Uploads the epitopeprediction samplesheet to S3
+
+    hlatyping_s3 = hlatyping_result(outdir("hlatyping"), normal)
+    vcf_for_epipred = vcf_expr_annotated_vcf(
+        outdir("vcf_expression_annotator"), vcf_expr_patient_id, vcf_expr_short_id
+    )
+    epipred_pre_run = (
+        f"HLATYPING_S3='{hlatyping_s3}'\n"
+        f"EPIPRED_SS_S3='{epipred_ss_s3}'\n"
+        f"VCF_S3='{vcf_for_epipred}'\n"
+        f"SAMPLE_ID='{sample}'\n"
+        "\n"
+        # Download hlatyping result and extract alleles (strip HLA- prefix, join with ;)
+        # OptiType TSV: row 0 = header, row 1 = data; cols 2-7 are A1,A2,B1,B2,C1,C2
+        "ALLELES=$(aws s3 cp \"$HLATYPING_S3\" - | "
+        "awk 'NR==2{gsub(/HLA-/,\"\"); printf \"%s;%s;%s;%s;%s;%s\\n\",$2,$3,$4,$5,$6,$7}')\n"
+        # Write and upload the samplesheet
+        "printf 'sample,alleles,mhc_class,filename\\n%s,%s,I,%s\\n' "
+        "\"$SAMPLE_ID\" \"$ALLELES\" \"$VCF_S3\" | aws s3 cp - \"$EPIPRED_SS_S3\"\n"
+    )
 
     epipred_future = run_pipeline.submit(
         cfg=seqera_cfg,
@@ -332,10 +364,10 @@ def neoantigen_flow(
         run_tag=tag,
         params={
             **EPITOPEPREDICTION_PARAMS,
-            "input": vcf_expr_annotated_vcf(outdir("vcf_expression_annotator"), vcf_expr_patient_id, vcf_expr_short_id),
-            "alleles": hlatyping_result(outdir("hlatyping"), sample),
+            "input": epipred_ss_s3,
             "outdir": outdir("epitopeprediction"),
         },
+        pre_run_script=epipred_pre_run,
 
         wait_for=[vcf_annot_future, hlatyping_future],
     )
