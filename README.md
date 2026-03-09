@@ -464,6 +464,28 @@ Tests for `config.py` path helpers and the `PipelineIds` / `SeqeraConfig` datacl
 
 ---
 
+## Validation
+
+The pipeline has been validated end-to-end on **PID262622 (ORIGINATOR)**, a PDMR clear cell renal cell carcinoma (ccRCC) sample, by comparison against a manually curated neoantigen prediction run.
+
+### Output concordance (automated vs manual)
+
+| File | Automated | Manual |
+|------|-----------|--------|
+| `merged_df_final2.csv` | 124 rows | 77 rows |
+| `filtered_variants.csv` | 113 rows | 67 rows |
+
+Automated output contains ~70% more candidate rows. Likely contributing factors:
+
+1. **Prediction tools**: automated uses mhcflurry + mhcnuggets; manual used syfpeithi + mhcflurry + mhcnuggets. Different tool combinations find different binding peptides.
+2. **Mouse read contamination**: PID262622 is a PDMR (patient-derived mouse xenograft) sample. The manual run had mouse reads filtered prior to variant calling; the automated pipeline does **not** include a xenograft filtering step. Mouse-mapping reads can introduce false somatic variant calls that survive downstream filtering, inflating the candidate count. For PDX samples, consider pre-filtering with a tool such as `xengsort` or aligning to a combined human+mouse reference before running this pipeline.
+
+### Core clonal driver concordance
+
+16/18 genes shared between automated and manual output. All key clonal drivers confirmed (CSF1, OPN3, SCN11A, SRCAP, CWF19L2, AKAP1 — CCF values matching to two decimal places). Automated run additionally identified BAP1 frameshift (CCF=1.0) and TSC1 (CCF=1.0), both canonical ccRCC drivers absent from the manual top list.
+
+---
+
 ## Related Repositories
 
 | Repo | Description |
