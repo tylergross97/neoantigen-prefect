@@ -161,6 +161,22 @@ class SeqeraClient:
         resp.raise_for_status()
         return resp.json()["launch"]
 
+    def get_workflow_session_info(
+        self, workflow_id: str
+    ) -> dict[str, str | None]:
+        """
+        Return {"launch_id": ..., "session_id": ...} for a workflow run.
+
+        Wraps get_workflow_launch_config with a soft failure so callers can
+        store this eagerly after launch without crashing on transient errors.
+        Returns None values if the fetch fails.
+        """
+        try:
+            lc = self.get_workflow_launch_config(workflow_id)
+            return {"launch_id": lc.get("id"), "session_id": lc.get("sessionId")}
+        except Exception:
+            return {"launch_id": None, "session_id": None}
+
     def launch_pipeline(
         self,
         pipeline_id: int,
@@ -174,6 +190,8 @@ class SeqeraClient:
         revision: str | None = None,
         config_text_extra: str | None = None,
         resume_from_workflow_id: str | None = None,
+        session_id: str | None = None,
+        workflow_launch_id: str | None = None,
     ) -> str:
         """
         Launch a pipeline and return the workflow ID (run ID).
@@ -182,11 +200,9 @@ class SeqeraClient:
           1. GET /pipelines/{id}/launch  — fetch pipeline launch config (entity=pipeline)
           2. POST /workflow/launch        — submit with resume=false
 
-        Resume from a previous run:
-          1. GET /workflow/{prevId}/launch — fetch workflow launch config (entity=workflow)
-             This gives the correct launchId and the embedded sessionId.
-          2. GET /pipelines/{id}/launch    — for revision/configText base
-          3. POST /workflow/launch         — submit with resume=true + sessionId
+        Resume from a previous run (preferred — avoids stale API calls):
+          Pass session_id + workflow_launch_id directly (fetched eagerly at launch time).
+          Falls back to GET /workflow/{prevId}/launch if these are not provided.
 
         Seqera rejects resume=true when the launchId has entity=pipeline; the workflow
         entity launchId must be used instead.
@@ -195,11 +211,16 @@ class SeqeraClient:
         pl_lc = self.get_pipeline_launch_config(pipeline_id)
 
         if resume_from_workflow_id:
-            # Resume path: get the workflow entity launchId + embedded sessionId.
-            wf_lc = self.get_workflow_launch_config(resume_from_workflow_id)
-            launch_id = wf_lc["id"]
-            session_id = wf_lc.get("sessionId")
-            use_resume = True
+            if session_id and workflow_launch_id:
+                # Fast path: use pre-fetched values — no stale API call needed.
+                launch_id = workflow_launch_id
+                use_resume = True
+            else:
+                # Fallback: fetch from API (may fail with 400 for old runs).
+                wf_lc = self.get_workflow_launch_config(resume_from_workflow_id)
+                launch_id = wf_lc["id"]
+                session_id = wf_lc.get("sessionId")
+                use_resume = True
         else:
             launch_id = pl_lc["id"]
             session_id = None

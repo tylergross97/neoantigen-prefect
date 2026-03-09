@@ -123,14 +123,27 @@ def main() -> None:
         post_processing=_int_or_env(args.post_processing_id, "PIPELINE_POST_PROCESSING_ID") or defaults.post_processing,
     )
 
-    # Pre-seed workflow IDs for resume. The task will use GET /workflow/{id}/launch
-    # to obtain the workflow entity launchId + sessionId on the first launch attempt.
+    # Pre-seed workflow IDs for resume. Eagerly fetch sessionId + launchId now
+    # (while the runs are accessible) so that tasks.py can bypass the stale
+    # GET /workflow/{id}/launch call at launch time.
+    if args.resume_workflow:
+        from seqera_client import SeqeraClient
+        _seed_client = SeqeraClient(
+            token=SeqeraConfig().token,
+            workspace_id=SeqeraConfig().workspace_id,
+        )
     for entry in args.resume_workflow:
         if ":" not in entry:
             sys.exit(f"--resume-workflow must be 'PIPELINE_NAME:WORKFLOW_ID', got: {entry!r}")
         pipeline_name, workflow_id = entry.split(":", 1)
-        tasks._LAST_WORKFLOW_IDS[pipeline_name] = workflow_id
-        print(f"  Resume seeded: {pipeline_name} → {workflow_id}")
+        info = _seed_client.get_workflow_session_info(workflow_id)
+        tasks._LAST_WORKFLOW_IDS[pipeline_name] = {
+            "workflow_id": workflow_id,
+            "session_id": info["session_id"],
+            "launch_id": info["launch_id"],
+        }
+        session_hint = f"session={info['session_id'][:8]}..." if info["session_id"] else "session unavailable"
+        print(f"  Resume seeded: {pipeline_name} → {workflow_id} ({session_hint})")
 
     inputs = NeoantigenInputs(
         patient_id=args.patient_id,

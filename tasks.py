@@ -70,10 +70,12 @@ def create_and_upload_dataset(
 # Task: launch pipeline and poll until complete
 # ---------------------------------------------------------------------------
 
-# Maps pipeline_name → workflowId of the last failed run.
-# Used to pass resume_from_workflow_id on the Prefect retry attempt.
+# Maps pipeline_name → resume info for the last run.
+# Each value: {"workflow_id": str, "session_id": str|None, "launch_id": str|None}
+# session_id and launch_id are fetched eagerly right after every launch so that
+# resume never depends on the potentially-stale GET /workflow/{id}/launch endpoint.
 # Persists for the lifetime of the Python process (i.e. one flow run).
-_LAST_WORKFLOW_IDS: dict[str, str] = {}
+_LAST_WORKFLOW_IDS: dict[str, dict] = {}
 
 
 
@@ -120,13 +122,17 @@ def run_pipeline(
     if launch_delay_seconds:
         time.sleep(launch_delay_seconds)
 
-    prev_workflow_id = _LAST_WORKFLOW_IDS.get(pipeline_name)
+    prev = _LAST_WORKFLOW_IDS.get(pipeline_name)
+    prev_workflow_id = prev["workflow_id"] if prev else None
+    prev_session_id  = prev["session_id"]  if prev else None
+    prev_launch_id   = prev["launch_id"]   if prev else None
     run_name = _safe_run_name(pipeline_name, run_tag)
 
     if prev_workflow_id:
+        session_hint = f", session={'cached' if prev_session_id else 'unknown'}"
         logger.info(
             f"Resuming '{pipeline_name}' as run '{run_name}' "
-            f"(from workflow {prev_workflow_id})"
+            f"(from workflow {prev_workflow_id}{session_hint})"
         )
     else:
         logger.info(f"Launching '{pipeline_name}' as run '{run_name}' (pipeline_id={pipeline_id})")
@@ -144,6 +150,8 @@ def run_pipeline(
             revision=revision,
             config_text_extra=config_text_extra,
             resume_from_workflow_id=resume_from,
+            session_id=prev_session_id if resume_from else None,
+            workflow_launch_id=prev_launch_id if resume_from else None,
         )
 
     try:
@@ -164,6 +172,12 @@ def run_pipeline(
     )
     logger.info(f"Run launched: {workflow_id}\n  Monitor: {seqera_url}")
 
+    # Eagerly fetch and store session info while the run is fresh so that any
+    # future resume can bypass the potentially-stale GET /workflow/{id}/launch.
+    session_info = client.get_workflow_session_info(workflow_id)
+    if session_info["session_id"]:
+        logger.info(f"Session info cached for future resume (session={session_info['session_id'][:8]}...)")
+
     try:
         client.poll_until_complete(
             workflow_id=workflow_id,
@@ -172,8 +186,14 @@ def run_pipeline(
             logger=logger,
         )
     except RuntimeError:
-        _LAST_WORKFLOW_IDS[pipeline_name] = workflow_id
-        logger.warning(f"Captured workflowId={workflow_id} for resume on retry")
+        _LAST_WORKFLOW_IDS[pipeline_name] = {
+            "workflow_id": workflow_id,
+            "session_id": session_info["session_id"],
+            "launch_id": session_info["launch_id"],
+        }
+        logger.warning(
+            f"Captured workflowId={workflow_id} + session info for resume on retry"
+        )
         raise
 
     _LAST_WORKFLOW_IDS.pop(pipeline_name, None)  # clear on success
