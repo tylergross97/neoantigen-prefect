@@ -88,9 +88,11 @@ def main() -> None:
         metavar="PIPELINE_NAME:WORKFLOW_ID",
         help=(
             "Pre-seed a pipeline to resume from an existing Seqera workflow run. "
-            "Format: 'nf-core/sarek:5Zpxj5YTfyiacx'. "
-            "Can be specified multiple times. "
-            "Resume uses GET /workflow/{id}/launch to obtain the correct entity launchId."
+            "Format: 'PIPELINE_NAME:WORKFLOW_ID'. "
+            "PIPELINE_NAME must exactly match the internal name: "
+            "nf-core/sarek, hlatyping, nf-core/rnaseq, vcf-expression-annotator, "
+            "nf-core/epitopeprediction, PureCN, post-processing. "
+            "Can be specified multiple times."
         ),
     )
 

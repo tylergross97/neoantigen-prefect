@@ -99,11 +99,10 @@ def run_pipeline(
     """
     Launch a Seqera Platform pipeline and block until it completes.
 
-    On the first Prefect attempt: launches fresh.
-    On the Prefect retry attempt: if a workflowId was captured from the failed
-    run, uses GET /workflow/{id}/launch to obtain the workflow entity launchId
-    and embedded sessionId, then launches with resume=True so Nextflow skips
-    already-completed tasks.
+    If a previous workflowId is seeded (via _LAST_WORKFLOW_IDS):
+      - If that run already SUCCEEDED: returns its ID immediately (no new launch).
+      - If that run FAILED/CANCELLED: resumes with resume=True using cached session info.
+    On the first Prefect attempt with no prior run: launches fresh.
 
     The workflow entity launchId is required for resume — Seqera rejects
     resume=true when the launchId has entity=pipeline (returns 400).
@@ -154,12 +153,24 @@ def run_pipeline(
             workflow_launch_id=prev_launch_id if resume_from else None,
         )
 
+    # If a previous run exists, check whether it already SUCCEEDED.
+    # If so, skip launching entirely — the pipeline is already done.
+    if prev_workflow_id:
+        prev_status, _ = client.get_run_status(prev_workflow_id)
+        if prev_status == "SUCCEEDED":
+            logger.info(
+                f"'{pipeline_name}' already SUCCEEDED (run {prev_workflow_id}) — skipping launch"
+            )
+            _LAST_WORKFLOW_IDS.pop(pipeline_name, None)
+            return prev_workflow_id
+
     try:
         workflow_id = _launch(prev_workflow_id)
     except RuntimeError as exc:
         if prev_workflow_id and "400" in str(exc):
             logger.warning(
-                "Resume launch rejected by Seqera (400) — falling back to fresh start"
+                f"Resume launch rejected by Seqera (400) — falling back to fresh start.\n"
+                f"Seqera response: {exc}"
             )
             _LAST_WORKFLOW_IDS.pop(pipeline_name, None)
             workflow_id = _launch(None)

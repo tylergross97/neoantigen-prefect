@@ -193,7 +193,7 @@ def purecn_variants_csv(outdir: str, sample: str) -> str:
     """Per-variant CCF table (CSV) from nextflow-purecn.
 
     The pipeline sets outdir_purecn = {outdir_base}/purecn and publishes
-    the output directory {sample}_purecn_output/ there.
-    Full path: {outdir}/purecn/{sample}_purecn_output/{sample}_variants.csv
+    files with the --out prefix directly there (not in a subdirectory).
+    Full path: {outdir}/purecn/{sample}_purecn_output_variants.csv
     """
-    return f"{outdir}/purecn/{sample}_purecn_output/{sample}_variants.csv"
+    return f"{outdir}/purecn/{sample}_purecn_output_variants.csv"

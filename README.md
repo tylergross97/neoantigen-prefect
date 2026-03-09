@@ -189,12 +189,14 @@ Cloud pipelines fail. Spot instances are reclaimed, transient errors occur. The 
 **Within a single Nextflow run** (handled by Seqera): Nextflow's `-resume` skips already-completed tasks using its work directory cache. Seqera stores the `sessionId` needed to locate that cache across runs.
 
 **Across a failed flow run** (handled by this repo): If `run_pipeline` raises (pipeline ended in a non-SUCCEEDED state), it stores the Seqera workflow ID in `_LAST_WORKFLOW_IDS`. On a Prefect retry, the task detects this ID and:
-1. Calls `GET /workflow/{id}/launch` to fetch the **workflow-entity launchId** and the original `sessionId`
-2. Launches with `resume=True` and the recovered `sessionId`
+1. Calls `GET /workflow/{id}` to check the run's status
+   - If already **SUCCEEDED**: returns the existing workflow ID immediately — no new launch
+   - If **FAILED/CANCELLED**: calls `GET /workflow/{id}/launch` to fetch the workflow-entity launchId and sessionId, then launches with `resume=True`
+2. Session info is fetched eagerly after every fresh launch and cached so future resumes bypass potentially-stale API calls
 
-One subtlety: Seqera requires the launchId from the *workflow run* (`entity=workflow`), not from the *pipeline* (`entity=pipeline`). Using the pipeline-entity launchId with `resume=true` returns a 400 error. This is why `get_workflow_launch_config()` exists as a separate method from `get_pipeline_launch_config()`.
+One subtlety: Seqera requires the launchId from the *workflow run* (`entity=workflow`), not from the *pipeline* (`entity=pipeline`). Using the pipeline-entity launchId with `resume=true` returns a 400 error. This is why `get_workflow_launch_config()` exists as a separate method from `get_pipeline_launch_config()`. Seqera also rejects `resume=true` for SUCCEEDED runs — the SUCCEEDED check avoids hitting this error entirely.
 
-To manually resume after restarting the process entirely, pass `--resume-workflow` once per pipeline:
+To manually resume after restarting the process entirely, pass `--resume-workflow` once per pipeline you want to skip or resume. If the referenced run already SUCCEEDED, `run_pipeline` returns it immediately without launching anything new on Seqera.
 
 ```bash
 python run_flow.py ... \
@@ -202,7 +204,17 @@ python run_flow.py ... \
   --resume-workflow "nf-core/rnaseq:qzhhZjJ00GctM"
 ```
 
-This pre-seeds `_LAST_WORKFLOW_IDS` before the flow starts, so the first launch attempt for those pipelines will already use the resume path.
+**Pipeline name keys** (must match exactly — these are the internal `pipeline_name` values, not GitHub repo paths):
+
+| Pipeline | Key for `--resume-workflow` |
+|----------|----------------------------|
+| nf-core/sarek | `nf-core/sarek` |
+| nf-core/hlatyping | `hlatyping` |
+| nf-core/rnaseq | `nf-core/rnaseq` |
+| vcf-expression-annotator | `vcf-expression-annotator` |
+| nf-core/epitopeprediction | `nf-core/epitopeprediction` |
+| nextflow-purecn | `PureCN` |
+| post-processing | `post-processing` |
 
 ---
 
@@ -329,7 +341,7 @@ python run_flow.py \
 
 ### Resuming from a previous run
 
-If a flow run fails partway through, you can resume each pipeline from its last Seqera run instead of starting from scratch. Pass `--resume-workflow` once per pipeline you want to resume:
+If a flow run fails partway through, pass `--resume-workflow` for any pipeline that completed or partially completed. If the referenced run **already SUCCEEDED**, `run_pipeline` returns its workflow ID immediately — no new Seqera run is created. If it **FAILED or was CANCELLED**, the task attempts to resume with Nextflow's `-resume` using the original session cache.
 
 ```bash
 python run_flow.py \
@@ -338,12 +350,11 @@ python run_flow.py \
   --normal-sample PID001_N \
   ... \
   --resume-workflow "nf-core/sarek:5Zpxj5YTfyiacx" \
-  --resume-workflow "nf-core/rnaseq:qzhhZjJ00GctM"
+  --resume-workflow "nf-core/rnaseq:qzhhZjJ00GctM" \
+  --resume-workflow "PureCN:abc123def456"
 ```
 
-Pipelines not listed will start fresh. The resume uses `GET /workflow/{id}/launch` to obtain the correct workflow-entity launchId and embedded sessionId — this is required because Seqera rejects `resume=true` when the launchId has `entity=pipeline`.
-
-The `run_pipeline` task has no Prefect retries. If a pipeline fails, re-run `run_flow.py` with `--resume-workflow` flags for any pipelines that completed or partially completed.
+Pipelines not listed start fresh. The `PIPELINE_NAME` must exactly match the internal name — see the [pipeline name key table](#resume-mechanism) above.
 
 ### Override pipeline IDs at runtime
 
@@ -385,7 +396,7 @@ Samplesheets are written to `SEQERA_BASE_OUTDIR/{patient_id}/samplesheets/` on S
 - **sarek output paths**: nf-core/sarek v3.5.1 uses a `{tumor}_vs_{normal}` naming convention for somatic variant calling outputs. VEP-annotated VCFs land at `annotation/mutect2/{T}_vs_{N}/{T}_vs_{N}.mutect2.filtered_VEP.ann.vcf.gz` (publishDir uses `${meta.variantcaller}` = `mutect2`, not `vep`); CNVkit files at `variant_calling/cnvkit/{T}_vs_{N}/{T}.cns` and `.cnr`. Both `--tumor-sample` and `--normal-sample` are required to construct these paths.
 - **PureCN S3 path handling**: the `nextflow_purecn` pipeline's `resolveFilePath` helper and `validateParameters` were patched to handle `s3://` URIs (in addition to absolute and relative local paths). Without this fix the `.exists()` check always fails for S3 inputs.
 - **Prefect tasks** run in worker threads. Parallelism is achieved by submitting tasks with `.submit()` and resolving futures with `.result()` at dependency boundaries.
-- **Resume mechanism**: `--resume-workflow PIPELINE_NAME:WORKFLOW_ID` pre-seeds `tasks._LAST_WORKFLOW_IDS`, which `run_pipeline` picks up to call `GET /workflow/{id}/launch` to fetch the workflow-entity launchId and sessionId, then launches with `resume=True`. Using the pipeline-entity launchId with `resume=true` returns a 400 error from Seqera — the workflow-entity launchId is required.
+- **Resume mechanism**: `--resume-workflow PIPELINE_NAME:WORKFLOW_ID` pre-seeds `tasks._LAST_WORKFLOW_IDS`. At launch time, `run_pipeline` calls `GET /workflow/{id}` first: if the run already SUCCEEDED it returns that ID immediately (no new launch); if FAILED/CANCELLED it calls `GET /workflow/{id}/launch` to fetch the workflow-entity launchId and sessionId and launches with `resume=True`. Seqera rejects `resume=true` for SUCCEEDED runs with a 400 — the SUCCEEDED check avoids this. The workflow-entity launchId (not the pipeline-entity launchId) is required for resume.
 - **Seqera API**: pipelines are launched via `POST /workflow/launch?workspaceId={id}` after fetching the pipeline's saved launch config. Datasets for post-processing input are uploaded via `POST /workspaces/{id}/datasets/{id}/upload`.
 - **No caching** on dataset upload tasks — Seqera datasets are cheap to create and caching caused stale references after deletion.
 
