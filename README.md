@@ -85,6 +85,127 @@ neoantigen-prefect/
 
 ---
 
+## How It Works
+
+### The two frameworks and why both are needed
+
+**Seqera Platform** is a commercial platform for running Nextflow pipelines on cloud or HPC infrastructure. If you know Nextflow, think of it as the layer that replaces manually managing compute environments, job schedulers, container registries, and run monitoring. You configure a workspace once — pointing at your AWS Batch environment, SLURM cluster, GCP, Azure, or Kubernetes cluster — and from then on, launching a pipeline is a single API call. Every run is tracked, logged, and resumable. Seqera exposes all of this through a REST API.
+
+**Prefect** is a Python workflow orchestration framework — roughly analogous to Nextflow, but for Python functions instead of bioinformatics tools. A `@flow` is a top-level workflow; `@task`s are the units of work inside it. Prefect handles execution order, parallelism, failure tracking, retries, and a monitoring UI for the orchestration layer.
+
+The key insight is that **Nextflow handles parallelism within a single pipeline; Prefect handles ordering across multiple pipelines**. Neoantigen prediction requires seven pipelines that depend on each other's outputs. That cross-pipeline dependency logic has to live somewhere above Nextflow — that's what this repo is.
+
+Prefect does not run any Nextflow itself. It calls the Seqera Platform API: "launch this pipeline, wait until it finishes, then launch the next one." Seqera handles everything that happens inside each pipeline run.
+
+```
+you → run_flow.py → Prefect flow → Seqera API → Nextflow (on your compute backend)
+                                                    ↑
+                                       AWS Batch / SLURM / GCP / Azure / Kubernetes
+```
+
+---
+
+### What each file does
+
+**`config.py`** — configuration and output path wiring
+
+Two dataclasses live here:
+- `SeqeraConfig` — your Seqera credentials, workspace ID, compute environment ID, and S3/storage base paths. Values are read from environment variables with sensible defaults.
+- `PipelineIds` — the integer IDs of the 7 pipelines as they appear in your Seqera launchpad. To find an ID, open the pipeline in Seqera Platform — the URL contains `/pipelines/{id}`.
+
+Also contains a set of path-builder functions (`sarek_vep_vcf`, `hlatyping_result`, `rnaseq_transcript_counts_tsv`, etc.). These encode where each nf-core pipeline writes its outputs by default. They are the glue layer — the flow uses them to construct the input paths for downstream pipelines from the output paths of upstream ones.
+
+---
+
+**`seqera_client.py`** — raw HTTP wrapper for the Seqera REST API
+
+A thin `httpx`-based client that wraps the five Seqera API endpoints this project uses:
+
+| Method | Endpoint | Used for |
+|--------|----------|----------|
+| `GET` | `/pipelines/{id}/launch` | Fetch a launchpad pipeline's saved config |
+| `GET` | `/workflow/{id}/launch` | Fetch a past run's launch config (needed for resume) |
+| `POST` | `/workflow/launch` | Launch a pipeline run |
+| `GET` | `/workflow/{id}` | Poll run status |
+| `POST` | `/workspaces/{id}/datasets/{id}/upload` | Upload a samplesheet as a Seqera Dataset |
+
+Nothing in this file knows about Prefect or the neoantigen workflow — it is a generic Seqera API client.
+
+---
+
+**`tasks.py`** — Prefect tasks (the units of work)
+
+Two `@task` functions:
+
+`run_pipeline` — the core task. Launches a pipeline via `SeqeraClient.launch_pipeline()`, logs a link to the Seqera monitoring UI, then blocks in a poll loop (every 60 seconds) until the run reaches a terminal state. If the run fails, it raises `RuntimeError`, which Prefect sees as a task failure. On a Prefect retry, it uses the captured Seqera workflow ID to resume from where it left off rather than starting over (see [Resume mechanism](#resume-mechanism) below).
+
+`create_and_upload_dataset` — creates a named Seqera Dataset, uploads a CSV to it, and returns an HTTPS download URL. Used only for the post-processing step's input samplesheet; all other samplesheets are delivered via pre-run scripts.
+
+---
+
+**`neoantigen_flow.py`** — the Prefect flow (the DAG)
+
+This is where the dependency graph is expressed. The `@flow` function `neoantigen_flow` launches the seven pipelines in the order dictated by their data dependencies:
+
+- **Steps 1, 2, 3** (sarek, hlatyping, rnaseq) are submitted in parallel via `.submit()`, staggered by 5 seconds to avoid Seqera API concurrency errors.
+- **Step 4** (vcf-expression-annotator) uses `wait_for=[sarek_future, rnaseq_future]` — Prefect will not submit this task until both upstream futures have resolved.
+- **Step 6** (PureCN) uses `wait_for=[sarek_future]` and runs in parallel with step 4.
+- **Step 5** (epitopeprediction) uses `wait_for=[vcf_annot_future, hlatyping_future]`.
+- **Steps 7+8** (post-processing) explicitly calls `.result()` on its three dependencies before building the input samplesheet, then submits the final pipeline.
+
+The file also contains all fixed pipeline parameters (`SAREK_PARAMS`, `RNASEQ_PARAMS`, etc.) — every non-dynamic parameter that would otherwise need to be set in the Seqera launchpad UI.
+
+---
+
+**`run_flow.py`** — CLI entrypoint
+
+Parses command-line arguments, reads samplesheet CSVs from disk into strings, constructs a `NeoantigenInputs` dataclass, and calls `neoantigen_flow()`. Also handles `--resume-workflow` pre-seeding (see below).
+
+---
+
+### Samplesheet delivery via pre-run scripts
+
+nf-core pipelines validate `--input` against the regex `^\S+\.csv$` using nf-schema. This means `--input` must be a real file path — an inline string, a Seqera `dataset://` URI, or an API-served HTTPS URL all fail validation.
+
+The solution: each pipeline's samplesheet is written to S3 by a **bash pre-run script** that executes on the Seqera compute head node before Nextflow starts. The script is a heredoc that pipes the CSV content to `aws s3 cp -`, and `--input` is set to the resulting S3 path:
+
+```bash
+aws s3 cp - 's3://bucket/neoantigen/PID001/samplesheets/wes.csv' << 'SAMPLESHEET_EOF'
+patient,sex,status,sample,lane,fastq_1,fastq_2
+PID001,XX,0,PID001_N,1,s3://...
+SAMPLESHEET_EOF
+```
+
+The heredoc uses single-quoted `'SAMPLESHEET_EOF'` to prevent shell expansion of CSV content. `set -u` must not be used in pre-run scripts because they are sourced (not subprocess-executed) by `nf-launcher.sh`, which has unbound variables like `TOWER_CONFIG_BASE64`.
+
+The epitopeprediction pre-run script also downloads the hlatyping result TSV from S3, parses the HLA alleles from it, and writes the epitopeprediction samplesheet — all in bash — because the alleles are not known until hlatyping completes.
+
+---
+
+### Resume mechanism
+
+Cloud pipelines fail. Spot instances are reclaimed, transient errors occur. The resume flow works at two levels:
+
+**Within a single Nextflow run** (handled by Seqera): Nextflow's `-resume` skips already-completed tasks using its work directory cache. Seqera stores the `sessionId` needed to locate that cache across runs.
+
+**Across a failed flow run** (handled by this repo): If `run_pipeline` raises (pipeline ended in a non-SUCCEEDED state), it stores the Seqera workflow ID in `_LAST_WORKFLOW_IDS`. On a Prefect retry, the task detects this ID and:
+1. Calls `GET /workflow/{id}/launch` to fetch the **workflow-entity launchId** and the original `sessionId`
+2. Launches with `resume=True` and the recovered `sessionId`
+
+One subtlety: Seqera requires the launchId from the *workflow run* (`entity=workflow`), not from the *pipeline* (`entity=pipeline`). Using the pipeline-entity launchId with `resume=true` returns a 400 error. This is why `get_workflow_launch_config()` exists as a separate method from `get_pipeline_launch_config()`.
+
+To manually resume after restarting the process entirely, pass `--resume-workflow` once per pipeline:
+
+```bash
+python run_flow.py ... \
+  --resume-workflow "nf-core/sarek:5Zpxj5YTfyiacx" \
+  --resume-workflow "nf-core/rnaseq:qzhhZjJ00GctM"
+```
+
+This pre-seeds `_LAST_WORKFLOW_IDS` before the flow starts, so the first launch attempt for those pipelines will already use the resume path.
+
+---
+
 ## Seqera Launchpad Pipelines
 
 The following pipelines must be added to your Seqera workspace before running. IDs are stored in `config.py`.
