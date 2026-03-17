@@ -5,6 +5,7 @@ channels:
 dependencies:
   - python=3.11
   - pip
+  - tmux
   - pip:
       - prefect==3.6.22
       - httpx>=0.27
