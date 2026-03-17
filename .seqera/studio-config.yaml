@@ -1,0 +1,33 @@
+schemaVersion: "0.0.1"
+kind: "studio-config"
+
+session:
+  name: "neoantigen-prefect"
+  description: "Prefect orchestration flow for neoantigen prediction — polls Seqera Platform pipelines remotely"
+
+  template:
+    kind: "none"   # Use the pre-built JupyterLab template (selected in the UI)
+
+  clone:
+    enabled: true
+    path: "/workspace"   # repo cloned to /workspace/neoantigen-prefect
+
+  dependencies:
+    condaEnvironmentFile: "environment.yaml"   # installs prefect + deps at startup
+
+  computeRequirements:
+    awsBatch:
+      cpu: 2
+      gpu: 0
+      memory: 8192
+
+  environmentVariables:
+    # TOWER_ACCESS_TOKEN must be set here or overridden in the UI — do not commit real values
+    - name: "TOWER_ACCESS_TOKEN"
+      value: ""   # ← fill in via the UI environment variables panel
+    - name: "SEQERA_WORKSPACE_ID"
+      value: "242762077936819"
+    - name: "PYTHONPATH"
+      value: "/workspace"
+    - name: "PYTHONUNBUFFERED"
+      value: "1"
