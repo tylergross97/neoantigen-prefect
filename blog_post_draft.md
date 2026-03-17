@@ -101,11 +101,11 @@ Full benchmark results, per-sample breakdowns, and cost metrics will be publishe
 
 We made specific tool choices here — nf-core/sarek, PureCN, netMHCpan via nf-core/epitopeprediction, Prefect for orchestration. You may make different ones. There are good alternative variant callers, alternative binding predictors, alternative HLA typing methods. The nf-core ecosystem has options for most of them.
 
-What we are less flexible about is the platform layer. And critically: Seqera Platform is not an AWS product. It runs on whatever compute you have — AWS Batch, Google Cloud, Azure, on-premises HPC via SLURM, or Kubernetes. If your institution has an HPC cluster, you can configure it as a Seqera compute environment and run the same workflow without touching a cloud provider. If you are cloud-based, you can switch providers without rewriting your pipelines. The orchestration code does not change.
+What we are less flexible about is the platform layer. Seqera Platform lets you run on your own infrastructure — cloud or on-prem — and abstracts away the compute setup at runtime. You configure a compute environment once; after that, the orchestration code doesn't change regardless of where it runs.
 
-Running a multi-pipeline genomics workflow without Seqera Platform — on any of these backends — means managing compute environments manually, building your own run monitoring, implementing your own resume logic, and producing your own audit trails. That work is real, it is repetitive, and it has nothing to do with the biology.
+Without that abstraction, running a multi-pipeline genomics workflow means managing compute environments manually, building your own run monitoring, implementing your own resume logic, and producing your own audit trails. That work is real, it is repetitive, and it has nothing to do with the biology.
 
-Seqera Platform makes the compute layer disappear. That is the part we are confident about.
+Seqera Platform handles the compute layer so you don't have to. That is the part we are confident about.
 
 ---
 

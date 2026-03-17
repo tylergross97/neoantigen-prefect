@@ -25,13 +25,13 @@ class SeqeraConfig:
     )
     compute_env_id: str = field(
         default_factory=lambda: os.getenv(
-            "SEQERA_COMPUTE_ENV_ID", "2uTyYrtzkHWBJwd6wFsK8I"
+            "SEQERA_COMPUTE_ENV_ID", "WXdMoxrTuJicepRVWY98H"
         )
     )
     work_dir: str = field(
         default_factory=lambda: os.getenv(
             "SEQERA_WORK_DIR",
-            "s3://1000g-data-link-test-eu-west-1-iwcyt6phg/work",
+            "s3://neoantigen-test-wujcfscfs/work",
         )
     )
     credentials_id: str = field(
@@ -42,7 +42,7 @@ class SeqeraConfig:
     base_outdir: str = field(
         default_factory=lambda: os.getenv(
             "SEQERA_BASE_OUTDIR",
-            "s3://1000g-data-link-test-eu-west-1-iwcyt6phg/neoantigen",
+            "s3://neoantigen-test-wujcfscfs/neoantigen",
         )
     )
 
@@ -60,7 +60,7 @@ class PipelineIds:
     """
 
     # Step 1 — somatic variant calling (WES tumor+normal)
-    sarek: int | None = 63782075010441              # nf-core/sarek
+    sarek: int | None = 4133281393432               # nf-core/sarek
 
     # Step 2 — HLA class I typing (WES reads)
     hlatyping: int | None = 90243648955829          # nf-core/hlatyping

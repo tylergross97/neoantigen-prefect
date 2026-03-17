@@ -43,12 +43,16 @@ SAREK_PARAMS: dict = {
     "vep_loftee": False,
     "save_reference": False,
     "skip_tools": "baserecalibrator_report",
+    "validate_params": False,           # suppress param schema errors for validationLenientMode
+    "validationLenientMode": True,      # warn instead of error on .FASTQ.gz uppercase extension
 }
 
 HLATYPING_PARAMS: dict = {
     "genome": "hg38",
     "solver": "glpk",               # LP solver for OptiType
     # "seqtype" was removed in nf-core/hlatyping v2.x (invalid param in v2.2.0)
+    "validate_params": False,       # suppress param schema errors for validationLenientMode
+    "validationLenientMode": True,  # warn instead of error on .FASTQ.gz uppercase extension
 }
 
 RNASEQ_PARAMS: dict = {
@@ -66,6 +70,8 @@ RNASEQ_PARAMS: dict = {
     "skip_stringtie": True,         # stringtie output not used downstream
     "save_unaligned": False,
     "deseq2_vst": False,            # DESeq2 VST not needed; we use raw salmon counts
+    "validate_params": False,       # suppress param schema errors for validationLenientMode
+    "validationLenientMode": True,  # warn instead of error on .FASTQ.gz uppercase extension
 }
 
 EPITOPEPREDICTION_PARAMS: dict = {

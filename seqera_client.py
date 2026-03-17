@@ -235,7 +235,6 @@ class SeqeraClient:
         profiles = config_profiles if config_profiles is not None else []
 
         launch_body: dict[str, Any] = {
-            "id": launch_id,
             "computeEnvId": compute_env_id,
             "pipeline": pl_lc.get("pipeline", ""),
             "workDir": work_dir,
@@ -251,6 +250,10 @@ class SeqeraClient:
         }
         # On resume, omit runName to let Seqera auto-generate a unique name.
         # Sending the same runName as the original run causes a 409 conflict.
+        # Only include launchpad/workflow launch ID when resuming — fresh launches
+        # must omit it (Seqera returns 400 for certain pipelines when it's present).
+        if use_resume:
+            launch_body["id"] = launch_id
         if run_name and not use_resume:
             launch_body["runName"] = run_name
         if credentials_id:
