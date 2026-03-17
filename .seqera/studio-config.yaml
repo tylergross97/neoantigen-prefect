@@ -22,9 +22,8 @@ session:
       memory: 8192
 
   environmentVariables:
-    # TOWER_ACCESS_TOKEN must be set here or overridden in the UI — do not commit real values
-    - name: "TOWER_ACCESS_TOKEN"
-      value: ""   # ← fill in via the UI environment variables panel
+    # TOWER_ACCESS_TOKEN should be set manually in the UI environment variables panel
+    # to avoid committing secrets to the repository
     - name: "SEQERA_WORKSPACE_ID"
       value: "242762077936819"
     - name: "PYTHONPATH"
