@@ -289,6 +289,85 @@ class PipelineIds:
 
 ---
 
+## Running from Seqera Studios
+
+The easiest way to run the Prefect flow remotely — without needing a local Python environment — is via a [Seqera Data Studios](https://docs.seqera.io/platform-cloud/studios/overview) session. The `.seqera/` directory in this repo contains the configuration needed to launch a JupyterLab session with this repo pre-cloned and all dependencies pre-installed.
+
+### 1. Push the repo to GitHub (if not already)
+
+The Studios Git integration clones directly from your remote — the `.seqera/studio-config.yaml` file must be accessible from the branch you select.
+
+### 2. Create the Studio session
+
+1. Navigate to **Data Studios** in your Seqera workspace
+2. Click **New studio** and select your Git repository
+3. Enter your repo URL and select the branch (e.g. `main`)
+4. Under **Environment variables**, add:
+
+   | Variable | Description |
+   |---|---|
+   | `TOWER_ACCESS_TOKEN` | Your Seqera Platform personal access token |
+   | `SEQERA_COMPUTE_ENV_ID` | Compute environment ID (if different from default) |
+   | `SEQERA_WORK_DIR` | S3 work directory (if different from default) |
+
+   > **Note:** `TOWER_ACCESS_TOKEN` is automatically injected by the Platform into every Studios session — you do not need to set it manually. All other `SEQERA_*` values fall back to the defaults in `config.py` if not set.
+
+5. Click **Add** to create the session, then **Connect** to open JupyterLab
+
+The `.seqera/environment.yaml` is applied automatically — `prefect`, `httpx`, `boto3`, and all other dependencies will be installed before the session is ready.
+
+### 3. Open a terminal in JupyterLab
+
+The repo is cloned to `/workspace`. Open a terminal tab and:
+
+```bash
+cd /workspace
+
+# Verify deps are available
+python -c "import prefect; print(prefect.__version__)"
+
+# Run the flow
+python run_flow.py \
+  --patient-id PID001 \
+  --wes-samplesheet samplesheets/PID001_wes.csv \
+  --hlatyping-samplesheet samplesheets/PID001_hlatyping.csv \
+  --rnaseq-samplesheet samplesheets/PID001_rnaseq.csv \
+  --tumor-sample PID001_T \
+  --normal-sample PID001_N
+```
+
+### 4. Keeping long-running flows alive
+
+Sarek + RNA-seq can take 6–12 hours. Use `tmux` so the flow keeps polling even if your browser tab closes:
+
+```bash
+tmux new -s neoantigen
+
+python run_flow.py \
+  --patient-id PID001 \
+  --wes-samplesheet samplesheets/PID001_wes.csv \
+  --hlatyping-samplesheet samplesheets/PID001_hlatyping.csv \
+  --rnaseq-samplesheet samplesheets/PID001_rnaseq.csv \
+  --tumor-sample PID001_T \
+  --normal-sample PID001_N
+
+# Detach with Ctrl+B, D — flow continues in background
+# Reattach later with: tmux attach -t neoantigen
+```
+
+### 5. Updating the flow code
+
+The repo is cloned at session start. To pick up code changes without creating a new session:
+
+```bash
+cd /workspace
+git pull origin main
+```
+
+Or simply stop and restart the studio session — it will re-clone the latest commit automatically.
+
+---
+
 ## Usage
 
 ### Samplesheet formats
