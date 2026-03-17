@@ -69,11 +69,15 @@ neoantigen-prefect/
 ├── tasks.py                # Prefect tasks: dataset upload, pipeline launch + poll
 ├── seqera_client.py        # Low-level Seqera Platform REST API client
 ├── config.py               # SeqeraConfig, PipelineIds, output path helpers
-├── run_flow.py             # CLI entrypoint
+├── run_flow.py             # Full CLI entrypoint (all arguments explicit)
+├── run_patient.py          # Convenience launcher — derives paths from PID
 ├── samplesheets/           # Per-patient input samplesheets
 │   ├── PID262622_wes.csv
 │   ├── PID262622_hlatyping.csv
-│   └── PID262622_rnaseq.csv
+│   ├── PID262622_rnaseq.csv
+│   ├── PID147771_wes.csv
+│   ├── PID147771_hlatyping.csv
+│   └── PID147771_rnaseq.csv
 ├── tests/
 │   ├── test_client.py      # SeqeraClient unit tests (HTTP mocked with respx)
 │   ├── test_tasks.py       # Task utilities + pipeline parameter correctness
@@ -191,6 +195,7 @@ Cloud pipelines fail. Spot instances are reclaimed, transient errors occur. The 
 **Across a failed flow run** (handled by this repo): If `run_pipeline` raises (pipeline ended in a non-SUCCEEDED state), it stores the Seqera workflow ID in `_LAST_WORKFLOW_IDS`. On a Prefect retry, the task detects this ID and:
 1. Calls `GET /workflow/{id}` to check the run's status
    - If already **SUCCEEDED**: returns the existing workflow ID immediately — no new launch
+   - If **RUNNING/SUBMITTED**: skips the launch entirely and attaches to the existing run by polling it directly
    - If **FAILED/CANCELLED**: calls `GET /workflow/{id}/launch` to fetch the workflow-entity launchId and sessionId, then launches with `resume=True`
 2. Session info is fetched eagerly after every fresh launch and cached so future resumes bypass potentially-stale API calls
 
@@ -310,7 +315,7 @@ The Studios Git integration clones directly from your remote — the `.seqera/st
    | `SEQERA_COMPUTE_ENV_ID` | Compute environment ID (if different from default) |
    | `SEQERA_WORK_DIR` | S3 work directory (if different from default) |
 
-   > **Note:** `TOWER_ACCESS_TOKEN` is automatically injected by the Platform into every Studios session — you do not need to set it manually. All other `SEQERA_*` values fall back to the defaults in `config.py` if not set.
+   > **Note:** `TOWER_ACCESS_TOKEN` is a reserved variable in the Seqera Platform UI and cannot be set via the environment variables panel. You must `export` it manually at the start of each studio session (see step 3 below).
 
 5. Click **Add** to create the session, then **Connect** to open JupyterLab
 
@@ -321,50 +326,49 @@ The `.seqera/environment.yaml` is applied automatically — `prefect`, `httpx`, 
 The repo is cloned to `/workspace`. Open a terminal tab and:
 
 ```bash
-cd /workspace
+# Set your access token (required every session — TOWER_ACCESS_TOKEN is reserved in the UI)
+export TOWER_ACCESS_TOKEN=your_token_here
+
+cd /workspace/neoantigen-prefect
 
 # Verify deps are available
 python -c "import prefect; print(prefect.__version__)"
-
-# Run the flow
-python run_flow.py \
-  --patient-id PID001 \
-  --wes-samplesheet samplesheets/PID001_wes.csv \
-  --hlatyping-samplesheet samplesheets/PID001_hlatyping.csv \
-  --rnaseq-samplesheet samplesheets/PID001_rnaseq.csv \
-  --tumor-sample PID001_T \
-  --normal-sample PID001_N
 ```
 
-### 4. Keeping long-running flows alive
+### 4. Run the flow
+
+Use `run_patient.py` — it derives samplesheet paths, sex, and sample names automatically from the patient ID:
+
+```bash
+python run_patient.py PID001
+```
+
+To resume from existing Seqera runs (e.g. after a flow crash):
+
+```bash
+python run_patient.py PID001 \
+  --resume-workflow "nf-core/sarek:abc123" \
+  --resume-workflow "nf-core/rnaseq:xyz456"
+```
+
+Samplesheets must exist at `samplesheets/{PID}_wes.csv`, `samplesheets/{PID}_hlatyping.csv`, and `samplesheets/{PID}_rnaseq.csv`.
+
+### 5. Keeping long-running flows alive
 
 Sarek + RNA-seq can take 6–12 hours. Use `tmux` so the flow keeps polling even if your browser tab closes:
 
 ```bash
 tmux new -s neoantigen
-
-python run_flow.py \
-  --patient-id PID001 \
-  --wes-samplesheet samplesheets/PID001_wes.csv \
-  --hlatyping-samplesheet samplesheets/PID001_hlatyping.csv \
-  --rnaseq-samplesheet samplesheets/PID001_rnaseq.csv \
-  --tumor-sample PID001_T \
-  --normal-sample PID001_N
+export TOWER_ACCESS_TOKEN=your_token_here
+python run_patient.py PID001
 
 # Detach with Ctrl+B, D — flow continues in background
 # Reattach later with: tmux attach -t neoantigen
 ```
 
-### 5. Updating the flow code
+### 6. Updating the flow code
 
-The repo is cloned at session start. To pick up code changes without creating a new session:
-
-```bash
-cd /workspace
-git pull origin main
-```
-
-Or simply stop and restart the studio session — it will re-clone the latest commit automatically.
+The repo is cloned fresh at each session build — no manual `git pull` needed.
 
 ---
 
@@ -393,7 +397,19 @@ sample,fastq_1,fastq_2,strandedness
 PID001_T,s3://bucket/rna_R1.fastq.gz,s3://bucket/rna_R2.fastq.gz,auto
 ```
 
-### Run
+### Quick run (recommended)
+
+`run_patient.py` derives samplesheet paths, sex, and sample names from the patient ID automatically:
+
+```bash
+python run_patient.py PID001
+python run_patient.py PID001 --resume-workflow "nf-core/sarek:abc123"
+python run_patient.py PID001 --run-tag retry-01
+```
+
+Samplesheets must exist at `samplesheets/{PID}_wes.csv`, `samplesheets/{PID}_hlatyping.csv`, and `samplesheets/{PID}_rnaseq.csv`. Sex is parsed from the `sex` column of the WES samplesheet. Tumor and normal sample names default to `{PID}_T` and `{PID}_N`.
+
+### Full CLI run
 
 ```bash
 python run_flow.py \
