@@ -43,16 +43,12 @@ SAREK_PARAMS: dict = {
     "vep_loftee": False,
     "save_reference": False,
     "skip_tools": "baserecalibrator_report",
-    "validate_params": False,           # suppress param schema errors for validationLenientMode
-    "validationLenientMode": True,      # warn instead of error on .FASTQ.gz uppercase extension
 }
 
 HLATYPING_PARAMS: dict = {
     "genome": "hg38",
     "solver": "glpk",               # LP solver for OptiType
     # "seqtype" was removed in nf-core/hlatyping v2.x (invalid param in v2.2.0)
-    "validate_params": False,       # suppress param schema errors for validationLenientMode
-    "validationLenientMode": True,  # warn instead of error on .FASTQ.gz uppercase extension
 }
 
 RNASEQ_PARAMS: dict = {
@@ -70,8 +66,6 @@ RNASEQ_PARAMS: dict = {
     "skip_stringtie": True,         # stringtie output not used downstream
     "save_unaligned": False,
     "deseq2_vst": False,            # DESeq2 VST not needed; we use raw salmon counts
-    "validate_params": False,       # suppress param schema errors for validationLenientMode
-    "validationLenientMode": True,  # warn instead of error on .FASTQ.gz uppercase extension
 }
 
 EPITOPEPREDICTION_PARAMS: dict = {
@@ -233,7 +227,6 @@ def neoantigen_flow(
         },
         pre_run_script=_upload_script(inputs.wes_samplesheet_csv, wes_s3),
         revision="3.5.1",   # 3.4.4 has Channel.empty([[]]) bug with NF 25.10.4
-
         launch_delay_seconds=0,
     )
 
@@ -265,7 +258,6 @@ def neoantigen_flow(
             "outdir": outdir("rnaseq"),
         },
         pre_run_script=_upload_script(inputs.rnaseq_samplesheet_csv, rnaseq_s3),
-
         launch_delay_seconds=10,
     )
 

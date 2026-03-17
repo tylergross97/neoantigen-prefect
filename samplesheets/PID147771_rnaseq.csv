@@ -1,2 +1,2 @@
 sample,fastq_1,fastq_2,strandedness
-PID147771_T,s3://1000g-data-link-test-eu-west-1-iwcyt6phg/pid_147771/147771~066-R1~ORIGINATOR~v2.0.2.4.0~RNASEQ.R1.FASTQ.gz,s3://1000g-data-link-test-eu-west-1-iwcyt6phg/pid_147771/147771~066-R1~ORIGINATOR~v2.0.2.4.0~RNASEQ.R2.FASTQ.gz,auto
+PID147771_T,s3://1000g-data-link-test-eu-west-1-iwcyt6phg/pid_147771/PID147771/tumor_rnaseq/ORIGINATOR/147771~066-R1~ORIGINATOR~v2.0.2.4.0~RNASEQ.R1.fastq.gz,s3://1000g-data-link-test-eu-west-1-iwcyt6phg/pid_147771/PID147771/tumor_rnaseq/ORIGINATOR/147771~066-R1~ORIGINATOR~v2.0.2.4.0~RNASEQ.R2.fastq.gz,auto
