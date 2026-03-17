@@ -21,15 +21,16 @@ The hard part is not running any one of these pipelines. The hard part is coordi
 ```mermaid
 flowchart TD
     A[WES FASTQs] --> S1["(1) nf-core/sarek\nSomatic Variant Calling"]
-    A --> S2["(2) nf-core/hlatyping\nHLA Typing"]
     B[RNA-seq FASTQs] --> S3["(3) nf-core/rnaseq\nExpression Quantification"]
 
     S1 -->|VEP VCF| S4["(4) vcf-expression-annotator\nExpression Annotation"]
     S1 -->|CNS/CNR + filtered VCF| S6["(6) PureCN\nTumor Purity & Clonality"]
     S3 -->|Salmon transcript counts| S4
 
-    S4 -->|Annotated VCF| S5["(5) nf-core/epitopeprediction\nMHC-I Binding Prediction"]
-    S2 -->|HLA alleles| S5
+    A --> S2["(2) nf-core/hlatyping\nHLA Typing"]
+
+    S2 -->|HLA alleles| S5["(5) nf-core/epitopeprediction\nMHC-I Binding Prediction"]
+    S4 -->|Annotated VCF| S5
 
     S5 -->|Binding TSV| PP["(7+8) post-processing\nNeoantigen Prioritization"]
     S4 -->|Expression CSV| PP
