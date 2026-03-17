@@ -153,8 +153,8 @@ def run_pipeline(
             workflow_launch_id=prev_launch_id if resume_from else None,
         )
 
-    # If a previous run exists, check whether it already SUCCEEDED.
-    # If so, skip launching entirely — the pipeline is already done.
+    # If a previous run exists, check its current status before launching.
+    _ACTIVE_STATUSES = {"SUBMITTED", "RUNNING"}
     if prev_workflow_id:
         prev_status, _ = client.get_run_status(prev_workflow_id)
         if prev_status == "SUCCEEDED":
@@ -162,6 +162,28 @@ def run_pipeline(
                 f"'{pipeline_name}' already SUCCEEDED (run {prev_workflow_id}) — skipping launch"
             )
             _LAST_WORKFLOW_IDS.pop(pipeline_name, None)
+            return prev_workflow_id
+        if prev_status in _ACTIVE_STATUSES:
+            logger.info(
+                f"'{pipeline_name}' is already {prev_status} (run {prev_workflow_id}) — attaching to existing run"
+            )
+            session_info = client.get_workflow_session_info(prev_workflow_id)
+            try:
+                client.poll_until_complete(
+                    workflow_id=prev_workflow_id,
+                    pipeline_name=pipeline_name,
+                    poll_interval=60,
+                    logger=logger,
+                )
+            except RuntimeError:
+                _LAST_WORKFLOW_IDS[pipeline_name] = {
+                    "workflow_id": prev_workflow_id,
+                    "session_id": session_info["session_id"],
+                    "launch_id": session_info["launch_id"],
+                }
+                raise
+            _LAST_WORKFLOW_IDS.pop(pipeline_name, None)
+            logger.info(f"'{pipeline_name}' SUCCEEDED (run {prev_workflow_id})")
             return prev_workflow_id
 
     try:
