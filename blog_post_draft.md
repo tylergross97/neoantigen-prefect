@@ -18,7 +18,25 @@ Each of these is a well-solved problem. The bioinformatics community has produce
 
 The hard part is not running any one of these pipelines. The hard part is coordinating seven of them, where the outputs of upstream steps are inputs to downstream ones, for a cohort of patients, on a timeline that matters clinically.
 
-**[FIGURE: Pipeline DAG showing the 7-step workflow with parallel branches and merge points]**
+```mermaid
+flowchart TD
+    A[WES FASTQs] --> S1["(1) nf-core/sarek\nSomatic Variant Calling"]
+    A --> S2["(2) nf-core/hlatyping\nHLA Typing"]
+    B[RNA-seq FASTQs] --> S3["(3) nf-core/rnaseq\nExpression Quantification"]
+
+    S1 -->|VEP VCF| S4["(4) vcf-expression-annotator\nExpression Annotation"]
+    S1 -->|CNS/CNR + filtered VCF| S6["(6) PureCN\nTumor Purity & Clonality"]
+    S3 -->|Salmon transcript counts| S4
+
+    S4 -->|Annotated VCF| S5["(5) nf-core/epitopeprediction\nMHC-I Binding Prediction"]
+    S2 -->|HLA alleles| S5
+
+    S5 -->|Binding TSV| PP["(7+8) post-processing\nNeoantigen Prioritization"]
+    S4 -->|Expression CSV| PP
+    S6 -->|CCF estimates| PP
+
+    PP --> OUT[Prioritized Neoantigen Candidates]
+```
 
 Without automation, this means manual handoffs between pipelines, custom shell scripts to stage data between steps, no reliable recovery when something fails midway, and no consistent audit trail. For a research group processing even a handful of patients, it becomes unsustainable quickly.
 
@@ -28,7 +46,7 @@ Without automation, this means manual handoffs between pipelines, custom shell s
 
 The architecture has two layers.
 
-**Seqera Platform runs the pipelines.** Each nf-core pipeline is configured once as a workspace resource — compute environment, parameters, container strategy. From that point on, launching a pipeline is a single API call. Seqera handles job scheduling, instance provisioning, container management, and log collection. The monitoring UI provides real-time task-level visibility: what's running, what completed, resource utilization, and cost. When something fails, logs are immediately accessible. Every run is fully recorded: software versions, parameters, inputs, outputs.
+**Seqera Platform runs the pipelines.** Each nextflow pipeline is configured once as a workspace resource — compute environment, parameters, container strategy. From that point on, launching a pipeline is a single API call. Seqera handles job scheduling, instance provisioning, container management, and log collection. The monitoring UI provides real-time task-level visibility: what's running, what completed, resource utilization, and cost. When something fails, logs are immediately accessible. Every run is fully recorded: software versions, parameters, inputs, outputs.
 
 Three platform features were particularly important for this workflow:
 
