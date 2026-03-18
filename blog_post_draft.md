@@ -24,8 +24,8 @@ flowchart TD
     B[RNA-seq FASTQs] --> S3["(3) nf-core/rnaseq\nExpression Quantification"]
 
     S1 -->|Variant Calls| S4["(4) vcf-expression-annotator\nExpression Annotation"]
-    S1 -->|CNS/CNR + filtered VCF| S6["(6) PureCN\nTumor Purity & Clonality"]
-    S3 -->|Gene Expression| S4
+    S1 -->|Copy Number Data| S6["(6) PureCN\nTumor Purity & Clonality"]
+    S3 -->|Gene Expression Data| S4
 
     A --> S2["(2) nf-core/hlatyping\nHLA Typing"]
 
