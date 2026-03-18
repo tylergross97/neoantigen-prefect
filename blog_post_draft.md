@@ -23,18 +23,18 @@ flowchart TD
     A[WES FASTQs] --> S1["(1) nf-core/sarek\nSomatic Variant Calling"]
     B[RNA-seq FASTQs] --> S3["(3) nf-core/rnaseq\nExpression Quantification"]
 
-    S1 -->|VEP VCF| S4["(4) vcf-expression-annotator\nExpression Annotation"]
+    S1 -->|Variant Calls| S4["(4) vcf-expression-annotator\nExpression Annotation"]
     S1 -->|CNS/CNR + filtered VCF| S6["(6) PureCN\nTumor Purity & Clonality"]
-    S3 -->|Salmon transcript counts| S4
+    S3 -->|Gene Expression| S4
 
     A --> S2["(2) nf-core/hlatyping\nHLA Typing"]
 
     S2 -->|HLA alleles| S5["(5) nf-core/epitopeprediction\nMHC-I Binding Prediction"]
-    S4 -->|Annotated VCF| S5
+    S4 -->|Expression-Annotated Variants| S5
 
-    S5 -->|Binding TSV| PP["(7+8) post-processing\nNeoantigen Prioritization"]
-    S4 -->|Expression CSV| PP
-    S6 -->|CCF estimates| PP
+    S5 -->|HLA-Epitope Binding Predictions| PP["(7+8) post-processing\nNeoantigen Prioritization"]
+    S4 -->|Expression-Annotated Variants| PP
+    S6 -->|Variant Clonality Estimates| PP
 
     PP --> OUT[Prioritized Neoantigen Candidates]
 ```
