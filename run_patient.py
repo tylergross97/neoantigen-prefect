@@ -7,7 +7,7 @@ Usage:
 
 Samplesheets are resolved automatically from samplesheets/{PID}_*.csv.
 Sex and sample names are derived from the WES samplesheet.
-All --resume-workflow flags are forwarded to run_flow.py unchanged.
+All --resume-workflow and --*-id flags are forwarded to run_flow.py unchanged.
 """
 from __future__ import annotations
 
@@ -46,6 +46,17 @@ def main() -> None:
         ),
     )
     parser.add_argument("--run-tag", default="", help="Short tag appended to run names")
+
+    # Pipeline ID overrides — forwarded directly to run_flow.py
+    id_group = parser.add_argument_group("Pipeline ID overrides (optional)")
+    id_group.add_argument("--sarek-id", type=int)
+    id_group.add_argument("--hlatyping-id", type=int)
+    id_group.add_argument("--rnaseq-id", type=int)
+    id_group.add_argument("--vcf-expr-id", type=int)
+    id_group.add_argument("--epitopeprediction-id", type=int)
+    id_group.add_argument("--purecn-id", type=int)
+    id_group.add_argument("--post-processing-id", type=int)
+
     args = parser.parse_args()
 
     pid = args.patient_id
@@ -84,6 +95,17 @@ def main() -> None:
         argv += ["--run-tag", args.run_tag]
     for entry in args.resume_workflow:
         argv += ["--resume-workflow", entry]
+    for flag, val in [
+        ("--sarek-id", args.sarek_id),
+        ("--hlatyping-id", args.hlatyping_id),
+        ("--rnaseq-id", args.rnaseq_id),
+        ("--vcf-expr-id", args.vcf_expr_id),
+        ("--epitopeprediction-id", args.epitopeprediction_id),
+        ("--purecn-id", args.purecn_id),
+        ("--post-processing-id", args.post_processing_id),
+    ]:
+        if val is not None:
+            argv += [flag, str(val)]
 
     # Replace sys.argv so run_flow.py's argparse sees the right args
     sys.argv = argv

@@ -312,6 +312,16 @@ echo "PID: $!"        # note the process ID in case you need to kill it
 tail -f neoantigen_PID001.log   # watch output (Ctrl+C stops watching, not the flow)
 ```
 
+The flow continues polling Seqera in the background — reconnect to the Studio at any time and `tail` the log to check progress:
+
+```
+(base) root@ip-172-31-33-17:/workspace# tail neoantigen_PID001.log
+13:04:40 | INFO | Task run 'run-PureCN-...'                  - [PureCN] status=RUNNING
+13:04:50 | INFO | Task run 'run-vcf-expression-annotator-...' - [vcf-expression-annotator] status=RUNNING
+13:08:50 | INFO | Task run 'run-vcf-expression-annotator-...' - 'vcf-expression-annotator' SUCCEEDED (run otLlfd5MTXRFP)
+13:08:58 | INFO | Task run 'run-nf-core/epitopeprediction-...' - Run launched: wkVLdnGo4CODR
+```
+
 `nohup` prevents the process from being killed when the session closes. All stdout and stderr go to the log file. To stop the flow:
 
 ```bash

@@ -71,7 +71,17 @@ python run_flow.py \
 
 Failure recovery is handled cleanly. When a Prefect task fails, it captures the Seqera workflow ID. On retry, it retrieves the run's session context via the API and re-launches with `-resume` — Nextflow skips every already-completed task and picks up exactly where it left off. No manual intervention. No discarded compute.
 
-**Seqera Data Studios is where the Prefect flow actually runs.** Studios provisions a persistent VM — pre-configured with the repo, dependencies, and environment — directly within the Seqera workspace. There is no separate server to maintain, no local machine that needs to stay on, and no external scheduler to configure. You open a terminal, provide your access token, and run the flow. Since the VM persists independently of your browser session, the Prefect polling loop runs in the background for hours without any connection required. It is a Seqera-native execution environment for the orchestration layer, sitting alongside the pipelines it is coordinating.
+**Seqera Data Studios is where the Prefect flow actually runs.** Studios provisions a persistent VM — pre-configured with the repo, dependencies, and environment — directly within the Seqera workspace. There is no separate server to maintain, no local machine that needs to stay on, and no external scheduler to configure. You open a terminal, provide your access token, and run the flow with `nohup`. Since the VM persists independently of your browser session, the Prefect polling loop runs in the background for hours without any connection required. Reconnect at any time to check progress:
+
+```
+(base) root@ip-172-31-33-17:/workspace# tail neoantigen_PID001.log
+13:04:40 | INFO | [PureCN] status=RUNNING
+13:04:50 | INFO | [vcf-expression-annotator] status=RUNNING
+13:08:50 | INFO | 'vcf-expression-annotator' SUCCEEDED (run otLlfd5MTXRFP)
+13:08:58 | INFO | Launching 'nf-core/epitopeprediction' ... Run launched: wkVLdnGo4CODR
+```
+
+It is a Seqera-native execution environment for the orchestration layer, sitting alongside the pipelines it is coordinating.
 
 ```mermaid
 flowchart TB
