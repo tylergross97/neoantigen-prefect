@@ -14,9 +14,9 @@ We built a complete neoantigen prediction workflow using Nextflow, Seqera Platfo
 
 Neoantigen prediction integrates evidence across multiple data types. At minimum, you need somatic variant calling from tumor-normal whole-exome sequencing, RNA expression data to confirm mutations are actually being transcribed, HLA typing to determine which peptides a patient's immune system can present, MHC-I binding prediction across patient-specific alleles, and tumor purity estimation to prioritize clonal mutations that make better vaccine targets.
 
-Each of these is a well-solved problem. The bioinformatics community has produced excellent, community-maintained implementations of every step: nf-core/sarek for somatic variant calling, nf-core/hlatyping for HLA typing, nf-core/rnaseq for expression quantification, nf-core/epitopeprediction for binding prediction, PureCN for tumor purity and clonality.
+The bioinformatics community has solved each of these steps individually. The nf-core project provides well-maintained, validated pipeline implementations for most of these steps. Custom nextflow pipelines can fill in the gaps.
 
-The hard part is not running any one of these pipelines. The hard part is coordinating seven of them, where the outputs of upstream steps are inputs to downstream ones, for a cohort of patients, on a timeline that matters clinically.
+The hard part is not running any one of these pipelines. The hard part is coordinating them — where the outputs of upstream steps become the inputs to downstream ones, across a cohort of patients, on a timeline that matters clinically. Nextflow handles parallelism within a single pipeline; it does not manage dependencies across multiple pipelines. That coordination has to live somewhere else.
 
 ```mermaid
 flowchart TD
@@ -53,9 +53,9 @@ Three platform features were particularly important for this workflow:
 
 - **Wave** resolves container dependencies on demand from conda and bioconda channels, building and caching them automatically. Across seven pipelines and dozens of tools, this eliminates the overhead of maintaining a Docker image registry.
 - **Fusion** lets pipelines read and write directly from cloud object storage — S3, GCS, Azure Blob — as a local filesystem, without staging data to intermediate volumes. For a workflow processing gigabytes of sequencing data per patient, this meaningfully reduces both cost and instance requirements regardless of which cloud you are on.
-- **The API** exposes pipeline status, run history, execution logs, and the session context needed to resume a failed run — all programmatically. This is what makes the orchestration layer possible.
+- **The API** is what makes this approach work — not just at cohort scale, but for a single patient. Every operation in the UI is available as a REST call: launching pipelines, polling status, retrieving logs, fetching the session context needed to resume a failed run. Executions are driven by code, not clicks. Parameters are version-controlled, runs are auditable, and failures recover without manual intervention. 
 
-**A thin Python layer coordinates across pipelines.** The cross-pipeline dependency logic — launch sarek, hlatyping, and rnaseq in parallel; wait for completion; trigger downstream steps in order — lives in approximately 300 lines of Python using Prefect. It is not managing compute. It is not monitoring pipeline internals. It calls the Seqera Platform API: launch this pipeline, wait until it completes, then launch the next one.
+**A thin Python layer coordinates across pipelines.** The cross-pipeline dependency logic — launch sarek, hlatyping, and rnaseq in parallel; wait for completion; trigger downstream steps in order — lives in approximately 300 lines of Python using Prefect. It is not managing compute. It is not monitoring pipeline internals. It calls the Seqera Platform API: launch this pipeline, wait until it completes, then launch the next one. The entire orchestration layer is just structured API calls.
 
 The result is a single command that processes a patient end-to-end:
 
@@ -71,7 +71,51 @@ python run_flow.py \
 
 Failure recovery is handled cleanly. When a Prefect task fails, it captures the Seqera workflow ID. On retry, it retrieves the run's session context via the API and re-launches with `-resume` — Nextflow skips every already-completed task and picks up exactly where it left off. No manual intervention. No discarded compute.
 
-**[FIGURE: Architecture diagram showing Prefect flow → Seqera API → compute backend, with the task DAG alongside]**
+**Seqera Data Studios is where the Prefect flow actually runs.** Studios provisions a persistent VM — pre-configured with the repo, dependencies, and environment — directly within the Seqera workspace. There is no separate server to maintain, no local machine that needs to stay on, and no external scheduler to configure. You open a terminal, provide your access token, and run the flow. Since the VM persists independently of your browser session, the Prefect polling loop runs in the background for hours without any connection required. It is a Seqera-native execution environment for the orchestration layer, sitting alongside the pipelines it is coordinating.
+
+```mermaid
+flowchart TB
+    subgraph studios["Seqera Data Studios (persistent VM)"]
+        prefect["Prefect Flow\n─────────────────\nDAG logic\nDependency ordering\nFailure recovery"]
+    end
+
+    subgraph platform["Seqera Platform"]
+        api["REST API\n─────────────────\nPOST /workflow/launch\nGET /workflow/{id}\nGET /workflow/{id}/launch"]
+        monitor["Run Monitoring\n─────────────────\nLogs · Cost · Status\nSoftware versions\nAudit trail"]
+    end
+
+    subgraph compute["AWS Batch (or SLURM / GCP / Azure)"]
+        direction LR
+        sarek["sarek"]
+        hla["hlatyping"]
+        rna["rnaseq"]
+        vcfannot["vcf-expression-\nannotator"]
+        purecn["PureCN"]
+        epipred["epitope-\nprediction"]
+        postproc["post-\nprocessing"]
+    end
+
+    prefect -- "launch / poll / resume" --> api
+    api --> monitor
+    api -- "provisions & monitors" --> compute
+
+    sarek --> vcfannot
+    sarek --> purecn
+    rna --> vcfannot
+    hla --> epipred
+    vcfannot --> epipred
+    epipred --> postproc
+    vcfannot --> postproc
+    purecn --> postproc
+
+    style studios fill:#1e3a5f,stroke:#2563eb,color:#fff
+    style platform fill:#1a1a2e,stroke:#7c3aed,color:#fff
+    style compute fill:#1a2e1a,stroke:#059669,color:#fff
+    style prefect fill:#1e3a5f,stroke:#3b82f6,color:#fff
+    style api fill:#2d1b4e,stroke:#7c3aed,color:#fff
+    style monitor fill:#2d1b4e,stroke:#7c3aed,color:#fff
+    style postproc fill:#059669,stroke:#047857,color:#fff
+```
 
 ---
 
@@ -101,11 +145,9 @@ Full benchmark results, per-sample breakdowns, and cost metrics will be publishe
 
 We made specific tool choices here — nf-core/sarek, PureCN, netMHCpan via nf-core/epitopeprediction, Prefect for orchestration. You may make different ones. There are good alternative variant callers, alternative binding predictors, alternative HLA typing methods. The nf-core ecosystem has options for most of them.
 
-What we are less flexible about is the platform layer. Seqera Platform lets you run on your own infrastructure — cloud or on-prem — and abstracts away the compute setup at runtime. You configure a compute environment once; after that, the orchestration code doesn't change regardless of where it runs.
+What we are less flexible about is the platform layer. Seqera Platform's API is specifically what makes this work at scale. Without it, you would need to build the infrastructure yourself: a system to submit Nextflow jobs to cloud compute, a polling mechanism to track run status, a way to retrieve session context for resume, and an audit trail of every execution. That is real engineering work, and it is removed from the biology.
 
-Without that abstraction, running a multi-pipeline genomics workflow means managing compute environments manually, building your own run monitoring, implementing your own resume logic, and producing your own audit trails. That work is real, it is repetitive, and it has nothing to do with the biology.
-
-Seqera Platform handles the compute layer so you don't have to. That is the part we are confident about.
+The API gives you all of that out of the box, across any compute backend — AWS, GCP, Azure, SLURM, Kubernetes. You configure a compute environment once; after that, the orchestration code doesn't change regardless of where it runs, and launching a new pipeline for a new patient is a single API call. That is what makes it practical to operate a multi-pipeline genomics workflow with a small team.
 
 ---
 

@@ -14,7 +14,7 @@ This repo contains no Nextflow code itself. It acts as a supervisor that:
 4. Supports manual resume seeding via `--resume-workflow` to skip completed pipelines on re-runs
 5. Returns the final S3 output path
 
-All heavy compute runs on AWS Batch through Seqera Platform — the Prefect flow runs locally (or in Prefect Cloud) and just orchestrates API calls.
+All heavy compute runs on AWS Batch through Seqera Platform — the Prefect flow runs in a Seqera Data Studios session and just orchestrates API calls.
 
 ---
 
@@ -243,55 +243,6 @@ The following pipelines must be added to your Seqera workspace before running. I
 
 ---
 
-## Setup
-
-### 1. Install dependencies
-
-```bash
-uv sync
-# or
-pip install -e .
-```
-
-### 2. Configure credentials
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` and set `TOWER_ACCESS_TOKEN`. All other values default to the configured workspace.
-
-```
-TOWER_ACCESS_TOKEN=your_seqera_token_here
-```
-
-Optional overrides:
-
-```
-SEQERA_WORKSPACE_ID=242762077936819
-SEQERA_COMPUTE_ENV_ID=2uTyYrtzkHWBJwd6wFsK8I
-SEQERA_WORK_DIR=s3://your-bucket/work
-SEQERA_BASE_OUTDIR=s3://your-bucket/neoantigen
-```
-
-### 3. Update pipeline IDs
-
-If you're using a different workspace, add each pipeline to your Seqera launchpad and update the IDs in `config.py`:
-
-```python
-@dataclass
-class PipelineIds:
-    sarek: int | None = 63782075010441
-    hlatyping: int | None = 90243648955829
-    rnaseq: int | None = 62172493141868
-    vcf_expression_annotator: int | None = 66496502716200
-    epitopeprediction: int | None = 166495825050255
-    purecn: int | None = 86054682767651
-    post_processing: int | None = 227282378461823
-```
-
----
-
 ## Running from Seqera Studios
 
 The easiest way to run the Prefect flow remotely — without needing a local Python environment — is via a [Seqera Data Studios](https://docs.seqera.io/platform-cloud/studios/overview) session. The `.seqera/` directory in this repo contains the configuration needed to launch a JupyterLab session with this repo pre-cloned and all dependencies pre-installed.
@@ -353,16 +304,31 @@ Samplesheets must exist at `samplesheets/{PID}_wes.csv`, `samplesheets/{PID}_hla
 
 ### 5. Keeping long-running flows alive
 
-Sarek + RNA-seq can take 6–12 hours. Use `tmux` so the flow keeps polling even if your browser tab closes:
+Sarek + RNA-seq can take 6–12 hours. Use `nohup` so the flow keeps polling even if your browser tab or Studio session disconnects:
 
 ```bash
-tmux new -s neoantigen
-export TOWER_ACCESS_TOKEN=your_token_here
-python run_patient.py PID001
-
-# Detach with Ctrl+B, D — flow continues in background
-# Reattach later with: tmux attach -t neoantigen
+nohup python run_patient.py PID001 > neoantigen_PID001.log 2>&1 &
+echo "PID: $!"        # note the process ID in case you need to kill it
+tail -f neoantigen_PID001.log   # watch output (Ctrl+C stops watching, not the flow)
 ```
+
+`nohup` prevents the process from being killed when the session closes. All stdout and stderr go to the log file. To stop the flow:
+
+```bash
+kill <PID>            # use the PID printed above
+```
+
+To resume after cancelling or a crash, pass `--resume-workflow` for each pipeline that was already running or completed — the flow will attach to running pipelines and skip succeeded ones:
+
+```bash
+nohup python run_patient.py PID001 \
+  --resume-workflow "nf-core/sarek:WORKFLOW_ID" \
+  --resume-workflow "nf-core/rnaseq:WORKFLOW_ID" \
+  --resume-workflow "hlatyping:WORKFLOW_ID" \
+  > neoantigen_PID001.log 2>&1 &
+```
+
+> **Note:** pass the entire command as a single line or use a shell script — bash interprets line continuations in `nohup` differently in some environments. A helper script `run_147771.sh` is included as an example.
 
 ### 6. Updating the flow code
 
@@ -408,6 +374,8 @@ python run_patient.py PID001 --run-tag retry-01
 Samplesheets must exist at `samplesheets/{PID}_wes.csv`, `samplesheets/{PID}_hlatyping.csv`, and `samplesheets/{PID}_rnaseq.csv`. Sex is parsed from the `sex` column of the WES samplesheet. Tumor and normal sample names default to `{PID}_T` and `{PID}_N`.
 
 ### Full CLI run
+
+For cases where you need explicit control over all arguments:
 
 ```bash
 python run_flow.py \
