@@ -60,25 +60,25 @@ class PipelineIds:
     """
 
     # Step 1 — somatic variant calling (WES tumor+normal)
-    sarek: int | None = 4133281393432               # nf-core/sarek
+    sarek: int | None = 55964005363629              # nf-core/sarek
 
     # Step 2 — HLA class I typing (WES reads)
-    hlatyping: int | None = 90243648955829          # nf-core/hlatyping
+    hlatyping: int | None = 195834718545719         # nf-core/hlatyping
 
     # Step 3 — RNA-seq quantification
-    rnaseq: int | None = 62172493141868             # nf-core/rnaseq
+    rnaseq: int | None = 279916736539698            # nf-core/rnaseq
 
     # Step 4 — annotate VCF with gene/transcript expression
-    vcf_expression_annotator: int | None = 66496502716200   # vcf-expression-annotator
+    vcf_expression_annotator: int | None = 115494822935647  # vcf-expression-annotator
 
     # Step 5 — MHC-I:peptide binding prediction
-    epitopeprediction: int | None = 166495825050255  # nf-core/epitopeprediction
+    epitopeprediction: int | None = 78969659774724  # nf-core/epitopeprediction
 
     # Step 6 — tumor purity / clonality estimation (parallel to steps 3-5)
-    purecn: int | None = 86054682767651             # nextflow-purecn
+    purecn: int | None = 109854476846005            # nextflow-purecn
 
     # Steps 7+8 — downstream merge + tertiary prioritisation (single pipeline)
-    post_processing: int | None = 227282378461823   # post-processing
+    post_processing: int | None = 171371528787569   # post-processing
 
     def validate(self) -> None:
         """Raise ValueError listing any pipeline IDs that are still None."""
