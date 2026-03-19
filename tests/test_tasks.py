@@ -144,7 +144,7 @@ def test_upload_script_format():
         mock_task.submit.side_effect = submit_side_effect
 
         import os
-        os.environ.setdefault("TOWER_ACCESS_TOKEN", "fake")
+        os.environ.setdefault("SEQERA_ACCESS_TOKEN", "fake")
 
         inputs = NeoantigenInputs(
             patient_id="PID001",

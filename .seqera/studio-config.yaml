@@ -20,7 +20,7 @@ session:
       memory: 8192
 
   environmentVariables:
-    # TOWER_ACCESS_TOKEN should be set manually in the UI environment variables panel
+    # SEQERA_ACCESS_TOKEN should be set manually in the UI environment variables panel
     # to avoid committing secrets to the repository
     - name: "SEQERA_WORKSPACE_ID"
       value: "242762077936819"

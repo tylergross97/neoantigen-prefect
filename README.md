@@ -260,11 +260,11 @@ The Studios Git integration clones directly from your remote — the `.seqera/st
 
    | Variable | Description |
    |---|---|
-   | `TOWER_ACCESS_TOKEN` | Your Seqera Platform personal access token |
+   | `SEQERA_ACCESS_TOKEN` | Your Seqera Platform personal access token |
    | `SEQERA_COMPUTE_ENV_ID` | Compute environment ID (if different from default) |
    | `SEQERA_WORK_DIR` | S3 work directory (if different from default) |
 
-   > **Note:** `TOWER_ACCESS_TOKEN` is a reserved variable in the Seqera Platform UI and cannot be set via the environment variables panel. You must `export` it manually at the start of each studio session (see step 3 below).
+   > **Note:** `SEQERA_ACCESS_TOKEN` is a reserved variable in the Seqera Platform UI and cannot be set via the environment variables panel. You must `export` it manually at the start of each studio session (see step 3 below).
 
 5. Click **Add** to create the session, then **Connect** to open JupyterLab
 
@@ -275,8 +275,8 @@ The `.seqera/environment.yaml` is applied automatically — `prefect`, `httpx`, 
 The repo is cloned to `/workspace`. Open a terminal tab and:
 
 ```bash
-# Set your access token (required every session — TOWER_ACCESS_TOKEN is reserved in the UI)
-export TOWER_ACCESS_TOKEN=your_token_here
+# Set your access token (required every session — SEQERA_ACCESS_TOKEN is reserved in the UI)
+export SEQERA_ACCESS_TOKEN=your_token_here
 
 cd /workspace/neoantigen-prefect
 

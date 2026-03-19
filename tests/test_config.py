@@ -92,7 +92,7 @@ def test_purecn_variants_csv():
 # ---------------------------------------------------------------------------
 
 def test_seqera_config_outdir(monkeypatch):
-    monkeypatch.setenv("TOWER_ACCESS_TOKEN", "fake-token")
+    monkeypatch.setenv("SEQERA_ACCESS_TOKEN", "fake-token")
     monkeypatch.setenv("SEQERA_BASE_OUTDIR", "s3://bucket/neoantigen")
     cfg = SeqeraConfig()
     assert cfg.outdir("PID001", "sarek") == "s3://bucket/neoantigen/PID001/sarek"

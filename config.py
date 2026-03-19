@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 class SeqeraConfig:
     """Seqera Platform workspace configuration."""
 
-    token: str = field(default_factory=lambda: os.environ["TOWER_ACCESS_TOKEN"])
+    token: str = field(default_factory=lambda: os.environ["SEQERA_ACCESS_TOKEN"])
     api_url: str = field(
         default_factory=lambda: os.getenv(
             "SEQERA_API_URL", "https://api.cloud.seqera.io"
