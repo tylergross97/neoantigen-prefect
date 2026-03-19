@@ -43,7 +43,17 @@ LABEL io.seqera.connect.version="${CONNECT_CLIENT_VERSION}"
 WORKDIR /workspace
 
 # ---------------------------------------------------------------
-# 3) Startup script — start Prefect server on CONNECT_TOOL_PORT
+# 3) Bake serve script into the image so it's always available
+#    regardless of clone timing
+# ---------------------------------------------------------------
+RUN printf 'import sys\n\
+sys.path.insert(0, "/workspace/neoantigen-prefect")\n\
+from neoantigen_flow import neoantigen_flow\n\
+neoantigen_flow.serve(name="neoantigen-prediction", tags=["neoantigen"])\n\
+' > /usr/local/bin/serve_flow.py
+
+# ---------------------------------------------------------------
+# 4) Startup script
 # ---------------------------------------------------------------
 RUN printf '#!/bin/bash\n\
 export PREFECT_SERVER_API_HOST=0.0.0.0\n\
@@ -54,23 +64,24 @@ export PREFECT_API_URL=http://localhost:${CONNECT_TOOL_PORT:-4200}/api\n\
 echo "Starting Prefect server on port $PREFECT_SERVER_API_PORT"\n\
 prefect server start &\n\
 \n\
-echo "Waiting for Prefect server to be ready..."\n\
+echo "Waiting for Prefect server..."\n\
 until curl -sf http://localhost:${PREFECT_SERVER_API_PORT}/api/health > /dev/null 2>&1; do\n\
     sleep 2\n\
 done\n\
-echo "Server ready — waiting for repo clone"\n\
-until [ -f /workspace/neoantigen-prefect/serve_flow.py ]; do\n\
+echo "Server ready — waiting for repo clone (max 120s)"\n\
+WAITED=0\n\
+until [ -d /workspace/neoantigen-prefect ] || [ $WAITED -ge 120 ]; do\n\
     sleep 2\n\
+    WAITED=$((WAITED+2))\n\
 done\n\
-echo "Repo ready — registering deployment"\n\
-\n\
-cd /workspace/neoantigen-prefect && python serve_flow.py &\n\
+echo "Registering deployment (waited ${WAITED}s for clone)"\n\
+python /usr/local/bin/serve_flow.py >> /tmp/serve.log 2>&1 &\n\
 \n\
 wait\n\
 ' > /usr/local/bin/start-prefect.sh && chmod +x /usr/local/bin/start-prefect.sh
 
 # ---------------------------------------------------------------
-# 4) Launch via connect-client
+# 5) Launch via connect-client
 # ---------------------------------------------------------------
 ENTRYPOINT ["/usr/bin/connect-client", "--entrypoint"]
 CMD ["/bin/bash", "/usr/local/bin/start-prefect.sh"]
