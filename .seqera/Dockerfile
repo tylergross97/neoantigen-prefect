@@ -49,8 +49,20 @@ RUN printf '#!/bin/bash\n\
 export PREFECT_SERVER_API_HOST=0.0.0.0\n\
 export PREFECT_SERVER_API_PORT=${CONNECT_TOOL_PORT:-4200}\n\
 export PREFECT_UI_API_URL=/api\n\
+export PREFECT_API_URL=http://localhost:${CONNECT_TOOL_PORT:-4200}/api\n\
+\n\
 echo "Starting Prefect server on port $PREFECT_SERVER_API_PORT"\n\
-exec prefect server start\n\
+prefect server start &\n\
+\n\
+echo "Waiting for Prefect server to be ready..."\n\
+until curl -sf http://localhost:${PREFECT_SERVER_API_PORT}/api/health > /dev/null 2>&1; do\n\
+    sleep 2\n\
+done\n\
+echo "Server ready — registering deployment"\n\
+\n\
+cd /workspace/neoantigen-prefect && python serve_flow.py &\n\
+\n\
+wait\n\
 ' > /usr/local/bin/start-prefect.sh && chmod +x /usr/local/bin/start-prefect.sh
 
 # ---------------------------------------------------------------
