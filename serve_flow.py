@@ -17,12 +17,15 @@ from neoantigen_flow import NeoantigenInputs, neoantigen_flow
 
 
 def _resolve_csv(value: str) -> str:
-    """Return CSV content: fetch from S3 if value is an s3:// URI."""
+    """Return CSV content from an S3 URI, local file path, or inline CSV text."""
     if value.startswith("s3://"):
         without_scheme = value[5:]
         bucket, _, key = without_scheme.partition("/")
         obj = boto3.client("s3").get_object(Bucket=bucket, Key=key)
         return obj["Body"].read().decode("utf-8")
+    if value.startswith("/") or value.startswith("./"):
+        with open(value) as f:
+            return f.read()
     return value
 
 
