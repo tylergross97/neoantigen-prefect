@@ -6,14 +6,12 @@ session:
   description: "Prefect orchestration flow for neoantigen prediction — polls Seqera Platform pipelines remotely"
 
   template:
-    kind: "none"   # Use the pre-built JupyterLab template (selected in the UI)
+    kind: "dockerfile"
+    dockerfile: "Dockerfile"
 
   clone:
     enabled: true
     path: "/workspace"   # repo cloned to /workspace/neoantigen-prefect
-
-  dependencies:
-    condaEnvironmentFile: "environment.yaml"   # installs prefect + deps at startup
 
   computeRequirements:
     awsBatch:
