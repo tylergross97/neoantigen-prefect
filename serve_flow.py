@@ -3,12 +3,27 @@ Register and serve the neoantigen flow deployment.
 
 Wraps neoantigen_flow with simple string parameters so Prefect can
 generate a clean deployment schema for the UI form.
+
+Samplesheet parameters accept either:
+  - An S3 URI (s3://bucket/key) — content is fetched automatically
+  - Raw CSV text pasted directly into the UI form
 """
 from __future__ import annotations
 
+import boto3
 from prefect import flow
 
 from neoantigen_flow import NeoantigenInputs, neoantigen_flow
+
+
+def _resolve_csv(value: str) -> str:
+    """Return CSV content: fetch from S3 if value is an s3:// URI."""
+    if value.startswith("s3://"):
+        without_scheme = value[5:]
+        bucket, _, key = without_scheme.partition("/")
+        obj = boto3.client("s3").get_object(Bucket=bucket, Key=key)
+        return obj["Body"].read().decode("utf-8")
+    return value
 
 
 @flow(
@@ -28,9 +43,9 @@ def neoantigen_flow_deploy(
 ) -> str:
     inputs = NeoantigenInputs(
         patient_id=patient_id,
-        wes_samplesheet_csv=wes_samplesheet_csv,
-        hlatyping_samplesheet_csv=hlatyping_samplesheet_csv,
-        rnaseq_samplesheet_csv=rnaseq_samplesheet_csv,
+        wes_samplesheet_csv=_resolve_csv(wes_samplesheet_csv),
+        hlatyping_samplesheet_csv=_resolve_csv(hlatyping_samplesheet_csv),
+        rnaseq_samplesheet_csv=_resolve_csv(rnaseq_samplesheet_csv),
         tumor_sample_name=tumor_sample_name,
         normal_sample_name=normal_sample_name,
         sex=sex,
