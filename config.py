@@ -21,11 +21,11 @@ class SeqeraConfig:
         )
     )
     workspace_id: str = field(
-        default_factory=lambda: os.getenv("SEQERA_WORKSPACE_ID", "242762077936819")
+        default_factory=lambda: os.getenv("SEQERA_WORKSPACE_ID", "241557511768949")
     )
     compute_env_id: str = field(
         default_factory=lambda: os.getenv(
-            "SEQERA_COMPUTE_ENV_ID", "WXdMoxrTuJicepRVWY98H"
+            "SEQERA_COMPUTE_ENV_ID", "6iBrsUmU65TcxFFNv1fqdJ"
         )
     )
     work_dir: str = field(

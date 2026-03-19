@@ -23,7 +23,7 @@ session:
     # SEQERA_ACCESS_TOKEN should be set manually in the UI environment variables panel
     # to avoid committing secrets to the repository
     - name: "SEQERA_WORKSPACE_ID"
-      value: "242762077936819"
+      value: "241557511768949"
     - name: "PYTHONPATH"
       value: "/workspace"
     - name: "PYTHONUNBUFFERED"
