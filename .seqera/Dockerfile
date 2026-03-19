@@ -21,8 +21,6 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install --no-install-recommends -y \
     git \
     curl \
-    tmux \
-    btrfs-progs \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install Prefect and flow dependencies
@@ -64,14 +62,17 @@ done\n\
 echo "Repo ready"\n\
 \n\
 echo "Starting Prefect server on port $PREFECT_SERVER_API_PORT"\n\
-tmux new-session -d -s prefect-server "prefect server start"\n\
+prefect server start &\n\
+SERVER_PID=$!\n\
 \n\
 echo "Waiting for Prefect server..."\n\
 until curl -sf http://localhost:${PREFECT_SERVER_API_PORT}/api/health > /dev/null 2>&1; do\n\
     sleep 2\n\
 done\n\
 echo "Server ready — registering deployment"\n\
-exec python /workspace/neoantigen-prefect/serve_flow.py\n\
+python /workspace/neoantigen-prefect/serve_flow.py &\n\
+\n\
+wait $SERVER_PID\n\
 ' > /usr/local/bin/start-prefect.sh && chmod +x /usr/local/bin/start-prefect.sh
 
 # ---------------------------------------------------------------
