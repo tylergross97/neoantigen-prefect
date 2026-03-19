@@ -12,7 +12,7 @@ FROM public.cr.seqera.io/platform/data-studio-jupyter:4.2.5-0.11
 LABEL org.opencontainers.image.source="https://github.com/tylergross97/neoantigen-prefect"
 
 # Install Prefect and flow dependencies
-RUN pip install --no-cache-dir \
+RUN python3 -m pip install --no-cache-dir \
     prefect==3.6.22 \
     httpx>=0.27 \
     python-dotenv>=1.0 \
