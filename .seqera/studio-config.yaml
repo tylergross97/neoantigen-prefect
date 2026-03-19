@@ -9,9 +9,6 @@ session:
     kind: "dockerfile"
     dockerfile: "Dockerfile"
 
-  clone:
-    enabled: true
-    path: "/workspace"   # repo cloned to /workspace/neoantigen-prefect
 
   computeRequirements:
     awsBatch:
