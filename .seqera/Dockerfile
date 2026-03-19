@@ -41,9 +41,10 @@ ARG CONNECT_CLIENT_VERSION
 LABEL io.seqera.connect.version="${CONNECT_CLIENT_VERSION}"
 
 # ---------------------------------------------------------------
-# 3) Bake flow source into the image — no clone dependency
+# 3) Clone repo at build time to bake flow source into the image
 # ---------------------------------------------------------------
-COPY neoantigen_flow.py config.py tasks.py seqera_client.py serve_flow.py /app/
+RUN git clone --depth 1 https://github.com/tylergross97/neoantigen-prefect.git /app && \
+    rm -rf /app/.git
 
 ENV PYTHONPATH=/app
 
