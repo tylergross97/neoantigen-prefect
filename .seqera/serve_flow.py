@@ -29,11 +29,6 @@ def _resolve_csv(value: str) -> str:
     return value
 
 
-def _default_samplesheet(patient_id: str, sheet_type: str) -> str:
-    """Return the baked-in samplesheet path for a patient if it exists."""
-    return f"/app/samplesheets/{patient_id}_{sheet_type}.csv"
-
-
 @flow(
     name="neoantigen-prediction",
     description="End-to-end neoantigen prediction pipeline orchestrated via Seqera Platform",
@@ -41,19 +36,19 @@ def _default_samplesheet(patient_id: str, sheet_type: str) -> str:
 )
 def neoantigen_flow_deploy(
     patient_id: str,
+    wes_samplesheet_csv: str,
+    hlatyping_samplesheet_csv: str,
+    rnaseq_samplesheet_csv: str,
     sex: str = "XX",
     run_tag: str = "",
-    wes_samplesheet_csv: str = "",
-    hlatyping_samplesheet_csv: str = "",
-    rnaseq_samplesheet_csv: str = "",
     tumor_sample_name: str = "",
     normal_sample_name: str = "",
 ) -> str:
     inputs = NeoantigenInputs(
         patient_id=patient_id,
-        wes_samplesheet_csv=_resolve_csv(wes_samplesheet_csv or _default_samplesheet(patient_id, "wes")),
-        hlatyping_samplesheet_csv=_resolve_csv(hlatyping_samplesheet_csv or _default_samplesheet(patient_id, "hlatyping")),
-        rnaseq_samplesheet_csv=_resolve_csv(rnaseq_samplesheet_csv or _default_samplesheet(patient_id, "rnaseq")),
+        wes_samplesheet_csv=_resolve_csv(wes_samplesheet_csv),
+        hlatyping_samplesheet_csv=_resolve_csv(hlatyping_samplesheet_csv),
+        rnaseq_samplesheet_csv=_resolve_csv(rnaseq_samplesheet_csv),
         tumor_sample_name=tumor_sample_name or f"{patient_id}_T",
         normal_sample_name=normal_sample_name or f"{patient_id}_N",
         sex=sex,

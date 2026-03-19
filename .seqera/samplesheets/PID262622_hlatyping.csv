@@ -1,2 +1,0 @@
-sample,fastq_1,fastq_2,seq_type
-PID262622_N,s3://1000g-data-link-test-eu-west-1-iwcyt6phg/pid_262622/PID262622/normal_wes/262622~v2.0.1.10.0~germlineWES.R1.fastq.gz,s3://1000g-data-link-test-eu-west-1-iwcyt6phg/pid_262622/PID262622/normal_wes/262622~v2.0.1.10.0~germlineWES.R2.fastq.gz,dna
