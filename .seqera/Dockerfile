@@ -39,9 +39,11 @@ ARG CONNECT_CLIENT_VERSION
 LABEL io.seqera.connect.version="${CONNECT_CLIENT_VERSION}"
 
 # ---------------------------------------------------------------
-# 3) Runtime: repo is cloned by connect-client into /workspace/neoantigen-prefect
+# 3) Bake flow source into image
 # ---------------------------------------------------------------
-ENV PYTHONPATH=/workspace/neoantigen-prefect
+COPY neoantigen_flow.py config.py tasks.py seqera_client.py serve_flow.py /app/
+
+ENV PYTHONPATH=/app
 
 WORKDIR /workspace
 
@@ -53,13 +55,7 @@ export PREFECT_SERVER_API_HOST=0.0.0.0\n\
 export PREFECT_SERVER_API_PORT=${CONNECT_TOOL_PORT:-4200}\n\
 export PREFECT_UI_API_URL=/api\n\
 export PREFECT_API_URL=http://localhost:${CONNECT_TOOL_PORT:-4200}/api\n\
-export PYTHONPATH=/workspace/neoantigen-prefect\n\
-\n\
-echo "Waiting for git clone at /workspace/neoantigen-prefect..."\n\
-until [ -f /workspace/neoantigen-prefect/serve_flow.py ]; do\n\
-    sleep 2\n\
-done\n\
-echo "Repo ready"\n\
+export PYTHONPATH=/app\n\
 \n\
 echo "Starting Prefect server on port $PREFECT_SERVER_API_PORT"\n\
 prefect server start &\n\
@@ -70,7 +66,7 @@ until curl -sf http://localhost:${PREFECT_SERVER_API_PORT}/api/health > /dev/nul
     sleep 2\n\
 done\n\
 echo "Server ready — registering deployment"\n\
-python /workspace/neoantigen-prefect/serve_flow.py &\n\
+python /app/serve_flow.py &\n\
 \n\
 wait $SERVER_PID\n\
 ' > /usr/local/bin/start-prefect.sh && chmod +x /usr/local/bin/start-prefect.sh
