@@ -66,7 +66,15 @@ until curl -sf http://localhost:${PREFECT_SERVER_API_PORT}/api/health > /dev/nul
     sleep 2\n\
 done\n\
 echo "Server ready — registering deployment"\n\
-python /app/serve_flow.py &\n\
+python /app/serve_flow.py > /workspace/neoantigen-prefect-evjnnnoto/serve_flow.log 2>&1 &\n\
+SERVE_PID=$!\n\
+echo "serve_flow.py started with PID $SERVE_PID"\n\
+sleep 10\n\
+if kill -0 $SERVE_PID 2>/dev/null; then\n\
+    echo "serve_flow.py still running after 10s — deployment registered OK" >> /workspace/neoantigen-prefect-evjnnnoto/serve_flow.log\n\
+else\n\
+    echo "serve_flow.py EXITED EARLY — check serve_flow.log" \n\
+fi\n\
 \n\
 wait $SERVER_PID\n\
 ' > /usr/local/bin/start-prefect.sh && chmod +x /usr/local/bin/start-prefect.sh
