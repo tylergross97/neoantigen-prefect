@@ -66,7 +66,8 @@ until curl -sf http://localhost:${PREFECT_SERVER_API_PORT}/api/health > /dev/nul
     sleep 2\n\
 done\n\
 echo "Server ready — starting serve_flow.py in foreground"\n\
-exec python /app/serve_flow.py\n\
+cd /app\n\
+exec python serve_flow.py\n\
 ' > /usr/local/bin/start-prefect.sh && chmod +x /usr/local/bin/start-prefect.sh
 
 # ---------------------------------------------------------------
