@@ -48,10 +48,7 @@ WORKDIR /workspace
 RUN printf '#!/bin/bash\n\
 PORT=${CONNECT_TOOL_PORT:-4200}\n\
 echo "Starting Prefect server on port $PORT"\n\
-exec prefect server start \\\n\
-    --host 0.0.0.0 \\\n\
-    --port "$PORT" \\\n\
-    --no-ui-api-url-override\n\
+exec prefect server start --host 0.0.0.0 --port "$PORT"\n\
 ' > /usr/local/bin/start-prefect.sh && chmod +x /usr/local/bin/start-prefect.sh
 
 # ---------------------------------------------------------------
