@@ -39,18 +39,18 @@ def neoantigen_flow_deploy(
     wes_samplesheet_csv: str,
     hlatyping_samplesheet_csv: str,
     rnaseq_samplesheet_csv: str,
-    tumor_sample_name: str,
-    normal_sample_name: str,
     sex: str = "XX",
     run_tag: str = "",
+    tumor_sample_name: str = "",
+    normal_sample_name: str = "",
 ) -> str:
     inputs = NeoantigenInputs(
         patient_id=patient_id,
         wes_samplesheet_csv=_resolve_csv(wes_samplesheet_csv),
         hlatyping_samplesheet_csv=_resolve_csv(hlatyping_samplesheet_csv),
         rnaseq_samplesheet_csv=_resolve_csv(rnaseq_samplesheet_csv),
-        tumor_sample_name=tumor_sample_name,
-        normal_sample_name=normal_sample_name,
+        tumor_sample_name=tumor_sample_name or f"{patient_id}_T",
+        normal_sample_name=normal_sample_name or f"{patient_id}_N",
         sex=sex,
         run_tag=run_tag,
     )
