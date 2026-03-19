@@ -58,7 +58,11 @@ echo "Waiting for Prefect server to be ready..."\n\
 until curl -sf http://localhost:${PREFECT_SERVER_API_PORT}/api/health > /dev/null 2>&1; do\n\
     sleep 2\n\
 done\n\
-echo "Server ready — registering deployment"\n\
+echo "Server ready — waiting for repo clone"\n\
+until [ -f /workspace/neoantigen-prefect/serve_flow.py ]; do\n\
+    sleep 2\n\
+done\n\
+echo "Repo ready — registering deployment"\n\
 \n\
 cd /workspace/neoantigen-prefect && python serve_flow.py &\n\
 \n\
