@@ -42,6 +42,7 @@ LABEL io.seqera.connect.version="${CONNECT_CLIENT_VERSION}"
 # 3) Bake flow source into image
 # ---------------------------------------------------------------
 COPY neoantigen_flow.py config.py tasks.py seqera_client.py serve_flow.py /app/
+COPY samplesheets/ /app/samplesheets/
 
 ENV PYTHONPATH=/app
 

@@ -1,0 +1,2 @@
+sample,fastq_1,fastq_2,strandedness
+PID262622_T,s3://1000g-data-link-test-eu-west-1-iwcyt6phg/pid_262622/PID262622/tumor_rnaseq/ORIGINATOR/262622~085-R~ORIGINATOR~v2.0.2.21.0~RNASEQ.R1.fastq.gz,s3://1000g-data-link-test-eu-west-1-iwcyt6phg/pid_262622/PID262622/tumor_rnaseq/ORIGINATOR/262622~085-R~ORIGINATOR~v2.0.2.21.0~RNASEQ.R2.fastq.gz,auto
