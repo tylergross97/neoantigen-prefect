@@ -22,6 +22,6 @@ session:
     - name: "SEQERA_WORKSPACE_ID"
       value: "241557511768949"
     - name: "PYTHONPATH"
-      value: "/workspace"
+      value: "/app"
     - name: "PYTHONUNBUFFERED"
       value: "1"
