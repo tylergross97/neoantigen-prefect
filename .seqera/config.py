@@ -60,13 +60,13 @@ class PipelineIds:
     """
 
     # Step 1 — somatic variant calling (WES tumor+normal)
-    sarek: int | None = 55964005363629              # nf-core/sarek
+    sarek: int | None = 28568253563445              # sarek-optimized
 
     # Step 2 — HLA class I typing (WES reads)
     hlatyping: int | None = 195834718545719         # nf-core/hlatyping
 
     # Step 3 — RNA-seq quantification
-    rnaseq: int | None = 279916736539698            # nf-core/rnaseq
+    rnaseq: int | None = 10256381830621             # rnaseq-optimized
 
     # Step 4 — annotate VCF with gene/transcript expression
     vcf_expression_annotator: int | None = 115494822935647  # vcf-expression-annotator
