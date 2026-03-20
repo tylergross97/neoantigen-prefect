@@ -109,7 +109,7 @@ def main() -> None:
 
     # Replace sys.argv so run_flow.py's argparse sees the right args
     sys.argv = argv
-    sys.path.insert(0, str(REPO_ROOT))
+    sys.path.insert(0, str(REPO_ROOT / ".seqera"))
 
     from dotenv import load_dotenv
     load_dotenv()
