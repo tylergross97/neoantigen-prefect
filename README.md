@@ -268,14 +268,19 @@ There are two ways to run the flow, both from inside a Seqera Data Studios sessi
 3. The `.seqera/environment.yaml` is applied automatically — all dependencies are installed before the session is ready
 4. Click **Add**, then **Connect** to open JupyterLab
 
-> **Note:** `SEQERA_ACCESS_TOKEN` is a reserved variable in the Seqera Platform UI and cannot be set via the environment variables panel. You must `export` it manually in the terminal each session (see below).
+Under **Environment variables**, add:
+
+| Variable | Description |
+|---|---|
+| `SEQERA_ACCESS_TOKEN` | Your Seqera Platform personal access token |
+| `SEQERA_COMPUTE_ENV_ID` | Compute environment ID (if different from default) |
+| `SEQERA_WORK_DIR` | S3 work directory (if different from default) |
 
 #### 2. Start the deployment server
 
 Open a terminal in JupyterLab:
 
 ```bash
-export SEQERA_ACCESS_TOKEN=your_token_here
 cd /workspace/neoantigen-prefect/.seqera
 
 nohup python serve_flow.py > prefect_server.log 2>&1 &
@@ -308,10 +313,9 @@ Run the flow directly from a terminal — in a Studio session, locally, or anywh
 
 #### 1. Set up a Studio session (if running remotely)
 
-Same steps as Option A, steps 1. Once the session is open, open a terminal:
+Same steps as Option A, step 1 (including setting `SEQERA_ACCESS_TOKEN` in the environment variables panel). Once the session is open, open a terminal:
 
 ```bash
-export SEQERA_ACCESS_TOKEN=your_token_here
 cd /workspace/neoantigen-prefect
 ```
 
