@@ -18,7 +18,6 @@ from __future__ import annotations
 import boto3
 from prefect import flow
 
-import tasks
 from config import SeqeraConfig
 from neoantigen_flow import NeoantigenInputs, neoantigen_flow
 from seqera_client import SeqeraClient
@@ -37,23 +36,30 @@ def _resolve_csv(value: str) -> str:
     return value
 
 
-def _seed_resumes(resume_map: dict[str, str]) -> None:
-    """Pre-seed tasks._LAST_WORKFLOW_IDS from a {pipeline_name: workflow_id} dict."""
-    entries = {k: v for k, v in resume_map.items() if v and v.strip()}
+def _seed_resumes(resume_map: dict[str, str]) -> dict:
+    """Build a resume_ids dict from a {pipeline_name: workflow_id} map.
+
+    Returns {pipeline_name: {workflow_id, session_id, launch_id}} for all
+    non-empty entries. Passed directly to NeoantigenInputs.resume_ids so
+    run_pipeline receives it as an explicit parameter rather than relying on
+    module-level shared state (which breaks across Prefect task boundaries).
+    """
+    entries = {k: v.strip() for k, v in resume_map.items() if v and v.strip()}
     if not entries:
-        return
+        return {}
     cfg = SeqeraConfig()
     client = SeqeraClient(token=cfg.token, workspace_id=cfg.workspace_id)
+    resume_ids = {}
     for pipeline_name, workflow_id in entries.items():
-        workflow_id = workflow_id.strip()
         info = client.get_workflow_session_info(workflow_id)
-        tasks._LAST_WORKFLOW_IDS[pipeline_name] = {
+        resume_ids[pipeline_name] = {
             "workflow_id": workflow_id,
             "session_id": info["session_id"],
             "launch_id": info["launch_id"],
         }
         session_hint = f"session={info['session_id'][:8]}..." if info["session_id"] else "session unavailable"
         print(f"Resume seeded: {pipeline_name} → {workflow_id} ({session_hint})")
+    return resume_ids
 
 
 @flow(
@@ -78,7 +84,7 @@ def neoantigen_flow_deploy(
     resume_purecn: str = "",
     resume_post_processing: str = "",
 ) -> str:
-    _seed_resumes({
+    resume_ids = _seed_resumes({
         "nf-core/sarek": resume_sarek,
         "hlatyping": resume_hlatyping,
         "nf-core/rnaseq": resume_rnaseq,
@@ -96,6 +102,7 @@ def neoantigen_flow_deploy(
         normal_sample_name=normal_sample_name or f"{patient_id}_N",
         sex=sex,
         run_tag=run_tag,
+        resume_ids=resume_ids,
     )
     return neoantigen_flow.fn(inputs=inputs)
 

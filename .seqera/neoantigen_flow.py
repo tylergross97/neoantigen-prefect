@@ -132,6 +132,7 @@ class NeoantigenInputs:
     normal_sample_name: str               # used to build sarek vs-name output paths
     sex: str = "XX"                       # XX or XY — used in sarek WES samplesheet
     run_tag: str = field(default="")      # optional, defaults to patient_id + date
+    resume_ids: dict = field(default_factory=dict)  # pipeline_name → {workflow_id, session_id, launch_id}
 
     def __post_init__(self) -> None:
         if not self.run_tag:
@@ -226,6 +227,7 @@ def neoantigen_flow(
         pre_run_script=_upload_script(inputs.wes_samplesheet_csv, wes_s3),
         revision="3.5.1",   # 3.4.4 has Channel.empty([[]]) bug with NF 25.10.4
         launch_delay_seconds=0,
+        resume=inputs.resume_ids.get("nf-core/sarek"),
     )
 
     # Step 2 — nf-core/hlatyping: HLA class I typing from normal WES reads
@@ -242,6 +244,7 @@ def neoantigen_flow(
         pre_run_script=_upload_script(inputs.hlatyping_samplesheet_csv, hla_s3),
         revision="2.2.0",
         launch_delay_seconds=5,
+        resume=inputs.resume_ids.get("hlatyping"),
     )
 
     # Step 3 — nf-core/rnaseq: transcript-level quantification
@@ -257,6 +260,7 @@ def neoantigen_flow(
         },
         pre_run_script=_upload_script(inputs.rnaseq_samplesheet_csv, rnaseq_s3),
         launch_delay_seconds=10,
+        resume=inputs.resume_ids.get("nf-core/rnaseq"),
     )
 
     # ── Step 4: vcf-expression-annotator (waits for sarek + rnaseq) ────────
@@ -287,7 +291,7 @@ def neoantigen_flow(
             "outdir": outdir("vcf_expression_annotator"),
         },
         pre_run_script=_upload_script(vcf_expr_ss_csv, vcf_expr_ss_s3),
-
+        resume=inputs.resume_ids.get("vcf-expression-annotator"),
         wait_for=[sarek_future, rnaseq_future],
     )
 
@@ -320,7 +324,7 @@ def neoantigen_flow(
         },
         pre_run_script=purecn_pre_run,
         revision="stable-hg38",
-
+        resume=inputs.resume_ids.get("PureCN"),
         wait_for=[sarek_future],
     )
 
@@ -364,7 +368,7 @@ def neoantigen_flow(
             "outdir": outdir("epitopeprediction"),
         },
         pre_run_script=epipred_pre_run,
-
+        resume=inputs.resume_ids.get("nf-core/epitopeprediction"),
         wait_for=[vcf_annot_future, hlatyping_future],
     )
 
@@ -403,7 +407,7 @@ def neoantigen_flow(
             "input": pp_dataset_uri,
             "outdir": outdir("post_processing"),
         },
-
+        resume=inputs.resume_ids.get("post-processing"),
     )
 
     post_processing_future.result()  # block until the flow is truly complete

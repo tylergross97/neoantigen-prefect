@@ -95,6 +95,7 @@ def run_pipeline(
     pre_run_script: str | None = None,
     revision: str | None = None,
     config_text_extra: str | None = None,
+    resume: dict | None = None,
 ) -> str:
     """
     Launch a Seqera Platform pipeline and block until it completes.
@@ -121,7 +122,7 @@ def run_pipeline(
     if launch_delay_seconds:
         time.sleep(launch_delay_seconds)
 
-    prev = _LAST_WORKFLOW_IDS.get(pipeline_name)
+    prev = resume or _LAST_WORKFLOW_IDS.get(pipeline_name)
     prev_workflow_id = prev["workflow_id"] if prev else None
     prev_session_id  = prev["session_id"]  if prev else None
     prev_launch_id   = prev["launch_id"]   if prev else None
