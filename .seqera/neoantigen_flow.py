@@ -32,7 +32,7 @@ SAREK_PARAMS: dict = {
     "genome": "GATK.GRCh38",
     "tools": "mutect2,vep,cnvkit",
     "wes": True,                    # WES mode (adjusts CNV normalisation)
-    "intervals": "s3://1000g-data-link-test-eu-west-1-iwcyt6phg/neoantigen/references/Exome-Agilent_V5.bed",
+    "intervals": "s3://neoantigen-prefect-evjnnnoto/neoantigen/references/Exome-Agilent_V5.bed",
     "trim_fastq": True,
     "vep_genome": "GRCh38",
     "vep_species": "homo_sapiens",

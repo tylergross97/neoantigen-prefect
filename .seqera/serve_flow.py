@@ -9,11 +9,9 @@ Samplesheet parameters accept either:
   - Raw CSV text pasted directly into the UI form
 
 Resume seeding:
-  Pass resume_workflows as a comma-separated list of PIPELINE_NAME:WORKFLOW_ID pairs
-  to skip or resume pipelines that already ran. Example:
-    "nf-core/sarek:3gly8S5RdElh8y,hlatyping:u3c6i68W4BrLw"
-  Pipeline name keys: nf-core/sarek, hlatyping, nf-core/rnaseq,
-    vcf-expression-annotator, nf-core/epitopeprediction, PureCN, post-processing
+  Pass a Seqera workflow ID into any of the per-pipeline resume fields
+  (resume_sarek, resume_hlatyping, etc.) to skip or resume that pipeline.
+  Leave a field blank to launch that pipeline fresh.
 """
 from __future__ import annotations
 
@@ -39,21 +37,15 @@ def _resolve_csv(value: str) -> str:
     return value
 
 
-def _seed_resumes(resume_workflows: str) -> None:
-    """Pre-seed tasks._LAST_WORKFLOW_IDS from a comma-separated PIPELINE:WORKFLOW_ID string."""
-    if not resume_workflows.strip():
+def _seed_resumes(resume_map: dict[str, str]) -> None:
+    """Pre-seed tasks._LAST_WORKFLOW_IDS from a {pipeline_name: workflow_id} dict."""
+    entries = {k: v for k, v in resume_map.items() if v and v.strip()}
+    if not entries:
         return
     cfg = SeqeraConfig()
     client = SeqeraClient(token=cfg.token, workspace_id=cfg.workspace_id)
-    for entry in resume_workflows.split(","):
-        entry = entry.strip()
-        if not entry:
-            continue
-        if ":" not in entry:
-            raise ValueError(
-                f"resume_workflows entries must be 'PIPELINE_NAME:WORKFLOW_ID', got: {entry!r}"
-            )
-        pipeline_name, workflow_id = entry.split(":", 1)
+    for pipeline_name, workflow_id in entries.items():
+        workflow_id = workflow_id.strip()
         info = client.get_workflow_session_info(workflow_id)
         tasks._LAST_WORKFLOW_IDS[pipeline_name] = {
             "workflow_id": workflow_id,
@@ -78,9 +70,23 @@ def neoantigen_flow_deploy(
     run_tag: str = "",
     tumor_sample_name: str = "",
     normal_sample_name: str = "",
-    resume_workflows: str = "",
+    resume_sarek: str = "",
+    resume_hlatyping: str = "",
+    resume_rnaseq: str = "",
+    resume_vcf_expression_annotator: str = "",
+    resume_epitopeprediction: str = "",
+    resume_purecn: str = "",
+    resume_post_processing: str = "",
 ) -> str:
-    _seed_resumes(resume_workflows)
+    _seed_resumes({
+        "nf-core/sarek": resume_sarek,
+        "hlatyping": resume_hlatyping,
+        "nf-core/rnaseq": resume_rnaseq,
+        "vcf-expression-annotator": resume_vcf_expression_annotator,
+        "nf-core/epitopeprediction": resume_epitopeprediction,
+        "PureCN": resume_purecn,
+        "post-processing": resume_post_processing,
+    })
     inputs = NeoantigenInputs(
         patient_id=patient_id,
         wes_samplesheet_csv=_resolve_csv(wes_samplesheet_csv),
