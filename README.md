@@ -61,15 +61,22 @@ Steps 1, 2, and 3 launch in parallel. Steps 4 and 6 run in parallel after sarek.
 
 ## Repository Structure
 
+`.seqera/` is the single source of truth for all Python modules. The CLI entrypoints and tests import from there.
+
 ```
 neoantigen-prefect/
-├── neoantigen_flow.py      # Prefect flow — main DAG definition
-├── tasks.py                # Prefect tasks: dataset upload, pipeline launch + poll
-├── seqera_client.py        # Low-level Seqera Platform REST API client
-├── config.py               # SeqeraConfig, PipelineIds, output path helpers
-├── run_flow.py             # Full CLI entrypoint (all arguments explicit)
-├── run_patient.py          # Convenience launcher — derives paths from PID
-├── samplesheets/           # Per-patient input samplesheets
+├── .seqera/                        # Single source of truth for all Python modules
+│   ├── neoantigen_flow.py          # Prefect flow — main DAG definition + pipeline params
+│   ├── tasks.py                    # Prefect tasks: dataset upload, pipeline launch + poll
+│   ├── seqera_client.py            # Low-level Seqera Platform REST API client
+│   ├── config.py                   # SeqeraConfig, PipelineIds, output path helpers
+│   ├── serve_flow.py               # Prefect deployment server (for Prefect UI option)
+│   ├── Dockerfile                  # Container image for the Studio session
+│   ├── environment.yaml            # Conda environment — applied automatically by Studios
+│   └── studio-config.yaml          # Seqera Data Studios session configuration
+├── run_flow.py                     # CLI entrypoint — all arguments explicit
+├── run_patient.py                  # CLI convenience launcher — derives paths from PID
+├── samplesheets/                   # Per-patient input samplesheets
 │   ├── PID262622_wes.csv
 │   ├── PID262622_hlatyping.csv
 │   ├── PID262622_rnaseq.csv
@@ -77,11 +84,11 @@ neoantigen-prefect/
 │   ├── PID147771_hlatyping.csv
 │   └── PID147771_rnaseq.csv
 ├── tests/
-│   ├── test_client.py      # SeqeraClient unit tests (HTTP mocked with respx)
-│   ├── test_tasks.py       # Task utilities + pipeline parameter correctness
-│   └── test_config.py      # Output path helpers + dataclass validation
+│   ├── conftest.py                 # Adds .seqera/ to sys.path for all tests
+│   ├── test_client.py              # SeqeraClient unit tests (HTTP mocked with respx)
+│   ├── test_tasks.py               # Task utilities + pipeline parameter correctness
+│   └── test_config.py              # Output path helpers + dataclass validation
 ├── pyproject.toml
-├── .env.example
 └── README.md
 ```
 
@@ -100,9 +107,10 @@ The key insight is that **Nextflow handles parallelism within a single pipeline;
 Prefect does not run any Nextflow itself. It calls the Seqera Platform API: "launch this pipeline, wait until it finishes, then launch the next one." Seqera handles everything that happens inside each pipeline run.
 
 ```
-you → run_flow.py → Prefect flow → Seqera API → Nextflow (on your compute backend)
-                                                    ↑
-                                       AWS Batch / SLURM / GCP / Azure / Kubernetes
+Prefect UI  →  serve_flow.py  ─┐
+                                ├─ Prefect flow → Seqera API → Nextflow (on your compute backend)
+CLI         →  run_patient.py ─┘                                  ↑
+                                              AWS Batch / SLURM / GCP / Azure / Kubernetes
 ```
 
 ---
@@ -243,54 +251,79 @@ The following pipelines must be added to your Seqera workspace before running. I
 
 ---
 
-## Running from Seqera Studios
+## Running the Flow
 
-The easiest way to run the Prefect flow remotely — without needing a local Python environment — is via a [Seqera Data Studios](https://docs.seqera.io/platform-cloud/studios/overview) session. The `.seqera/` directory in this repo contains the configuration needed to launch a JupyterLab session with this repo pre-cloned and all dependencies pre-installed.
+There are two ways to run the flow, both from inside a Seqera Data Studios session.
 
-### 1. Push the repo to GitHub (if not already)
+---
 
-The Studios Git integration clones directly from your remote — the `.seqera/studio-config.yaml` file must be accessible from the branch you select.
+### Option A — Prefect UI (recommended)
 
-### 2. Create the Studio session
+`serve_flow.py` registers the flow as a Prefect deployment and exposes a web form in the Prefect UI where you fill in patient ID and samplesheet S3 paths and click **Run**. No terminal arguments needed once the server is running.
 
-1. Navigate to **Data Studios** in your Seqera workspace
-2. Click **New studio** and select your Git repository
-3. Enter your repo URL and select the branch (e.g. `main`)
-4. Under **Environment variables**, add:
+#### 1. Set up a Studio session
 
-   | Variable | Description |
-   |---|---|
-   | `SEQERA_ACCESS_TOKEN` | Your Seqera Platform personal access token |
-   | `SEQERA_COMPUTE_ENV_ID` | Compute environment ID (if different from default) |
-   | `SEQERA_WORK_DIR` | S3 work directory (if different from default) |
+1. Navigate to **Data Studios** in your Seqera workspace and click **New studio**
+2. Select this Git repository and the `main` branch — the `.seqera/studio-config.yaml` drives the session build
+3. The `.seqera/environment.yaml` is applied automatically — all dependencies are installed before the session is ready
+4. Click **Add**, then **Connect** to open JupyterLab
 
-   > **Note:** `SEQERA_ACCESS_TOKEN` is a reserved variable in the Seqera Platform UI and cannot be set via the environment variables panel. You must `export` it manually at the start of each studio session (see step 3 below).
+> **Note:** `SEQERA_ACCESS_TOKEN` is a reserved variable in the Seqera Platform UI and cannot be set via the environment variables panel. You must `export` it manually in the terminal each session (see below).
 
-5. Click **Add** to create the session, then **Connect** to open JupyterLab
+#### 2. Start the deployment server
 
-The `.seqera/environment.yaml` is applied automatically — `prefect`, `httpx`, `boto3`, and all other dependencies will be installed before the session is ready.
-
-### 3. Open a terminal in JupyterLab
-
-The repo is cloned to `/workspace`. Open a terminal tab and:
+Open a terminal in JupyterLab:
 
 ```bash
-# Set your access token (required every session — SEQERA_ACCESS_TOKEN is reserved in the UI)
 export SEQERA_ACCESS_TOKEN=your_token_here
+cd /workspace/neoantigen-prefect/.seqera
 
-cd /workspace/neoantigen-prefect
-
-# Verify deps are available
-python -c "import prefect; print(prefect.__version__)"
+nohup python serve_flow.py > prefect_server.log 2>&1 &
+echo "Server PID: $!"
 ```
 
-### 4. Run the flow
+`serve_flow.py` starts a Prefect flow server and registers the `neoantigen-prediction` deployment. The server must keep running for the duration of your pipeline runs — `nohup` keeps it alive if your browser tab disconnects.
+
+#### 3. Trigger a run from the Prefect UI
+
+1. Open the Prefect UI (the URL is printed in `prefect_server.log` on startup)
+2. Navigate to **Deployments → neoantigen-prediction**
+3. Click **Run** and fill in the form:
+   - `patient_id` — e.g. `PID262622`
+   - `wes_samplesheet_csv` — S3 URI or inline CSV (e.g. `s3://bucket/samplesheets/PID262622_wes.csv`)
+   - `hlatyping_samplesheet_csv` — S3 URI or inline CSV
+   - `rnaseq_samplesheet_csv` — S3 URI or inline CSV
+   - `sex` — `XX` or `XY` (default: `XX`)
+   - `tumor_sample_name` — defaults to `{patient_id}_T`
+   - `normal_sample_name` — defaults to `{patient_id}_N`
+4. Click **Submit** — the Prefect UI shows live task status as the flow runs
+
+Samplesheet parameters accept either an S3 URI (content is fetched automatically) or raw CSV text pasted directly into the form field.
+
+---
+
+### Option B — CLI
+
+Run the flow directly from a terminal — in a Studio session, locally, or anywhere Python is available with the right environment variables set.
+
+#### 1. Set up a Studio session (if running remotely)
+
+Same steps as Option A, steps 1. Once the session is open, open a terminal:
+
+```bash
+export SEQERA_ACCESS_TOKEN=your_token_here
+cd /workspace/neoantigen-prefect
+```
+
+#### 2. Run the flow
 
 Use `run_patient.py` — it derives samplesheet paths, sex, and sample names automatically from the patient ID:
 
 ```bash
 python run_patient.py PID001
 ```
+
+Samplesheets must exist at `samplesheets/{PID}_wes.csv`, `samplesheets/{PID}_hlatyping.csv`, and `samplesheets/{PID}_rnaseq.csv`.
 
 To resume from existing Seqera runs (e.g. after a flow crash):
 
@@ -300,9 +333,7 @@ python run_patient.py PID001 \
   --resume-workflow "nf-core/rnaseq:xyz456"
 ```
 
-Samplesheets must exist at `samplesheets/{PID}_wes.csv`, `samplesheets/{PID}_hlatyping.csv`, and `samplesheets/{PID}_rnaseq.csv`.
-
-### 5. Keeping long-running flows alive
+#### 3. Keeping long-running flows alive
 
 Sarek + RNA-seq can take 6–12 hours. Use `nohup` so the flow keeps polling even if your browser tab or Studio session disconnects:
 
@@ -322,13 +353,13 @@ The flow continues polling Seqera in the background — reconnect to the Studio 
 13:08:58 | INFO | Task run 'run-nf-core/epitopeprediction-...' - Run launched: wkVLdnGo4CODR
 ```
 
-`nohup` prevents the process from being killed when the session closes. All stdout and stderr go to the log file. To stop the flow:
+To stop the flow:
 
 ```bash
-kill <PID>            # use the PID printed above
+kill <PID>
 ```
 
-To resume after cancelling or a crash, pass `--resume-workflow` for each pipeline that was already running or completed — the flow will attach to running pipelines and skip succeeded ones:
+To resume after cancelling or a crash:
 
 ```bash
 nohup python run_patient.py PID001 \
@@ -338,15 +369,15 @@ nohup python run_patient.py PID001 \
   > neoantigen_PID001.log 2>&1 &
 ```
 
-> **Note:** pass the entire command as a single line or use a shell script — bash interprets line continuations in `nohup` differently in some environments. A helper script `run_147771.sh` is included as an example.
+> **Note:** pass the entire command as a single line or use a shell script — bash interprets line continuations in `nohup` differently in some environments.
 
-### 6. Updating the flow code
+#### Updating the flow code
 
 The repo is cloned fresh at each session build — no manual `git pull` needed.
 
 ---
 
-## Usage
+## CLI Reference
 
 ### Samplesheet formats
 
