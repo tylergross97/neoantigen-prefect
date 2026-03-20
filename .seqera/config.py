@@ -31,7 +31,7 @@ class SeqeraConfig:
     work_dir: str = field(
         default_factory=lambda: os.getenv(
             "SEQERA_WORK_DIR",
-            "s3://neoantigen-test-wujcfscfs/work",
+            "s3://neoantigen-prefect-evjnnnoto/work",
         )
     )
     credentials_id: str = field(
@@ -42,7 +42,7 @@ class SeqeraConfig:
     base_outdir: str = field(
         default_factory=lambda: os.getenv(
             "SEQERA_BASE_OUTDIR",
-            "s3://neoantigen-test-wujcfscfs/neoantigen",
+            "s3://neoantigen-prefect-evjnnnoto/neoantigen",
         )
     )
 

@@ -54,7 +54,7 @@ def neoantigen_flow_deploy(
         sex=sex,
         run_tag=run_tag,
     )
-    return neoantigen_flow(inputs=inputs)
+    return neoantigen_flow.fn(inputs=inputs)
 
 
 if __name__ == "__main__":
