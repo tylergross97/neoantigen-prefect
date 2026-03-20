@@ -19,8 +19,6 @@ DAG (matches the Mermaid diagram):
                                                                                                            ↓
                                                                                            Prioritized Neoantigens
 """
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 from datetime import datetime
 
