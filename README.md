@@ -259,41 +259,27 @@ There are two ways to run the flow, both from inside a Seqera Data Studios sessi
 
 ### Option A — Prefect UI (recommended)
 
-`serve_flow.py` registers the flow as a Prefect deployment and exposes a web form in the Prefect UI where you fill in patient ID and samplesheet S3 paths and click **Run**. No terminal arguments needed once the server is running.
+The Studio session is pre-configured to automatically open the Prefect UI with the `neoantigen-prediction` deployment registered and ready. No terminal interaction needed.
 
-#### 1. Set up a Studio session
+#### 1. Create the Studio session
 
 1. Navigate to **Data Studios** in your Seqera workspace and click **New studio**
 2. Select this Git repository and the `main` branch — the `.seqera/studio-config.yaml` drives the session build
-3. The `.seqera/environment.yaml` is applied automatically — all dependencies are installed before the session is ready
-4. Click **Add**, then **Connect** to open JupyterLab
+3. Under **Environment variables**, add:
 
-Under **Environment variables**, add:
+   | Variable | Description |
+   |---|---|
+   | `SEQERA_ACCESS_TOKEN` | Your Seqera Platform personal access token |
+   | `SEQERA_COMPUTE_ENV_ID` | Compute environment ID (if different from default) |
+   | `SEQERA_WORK_DIR` | S3 work directory (if different from default) |
 
-| Variable | Description |
-|---|---|
-| `SEQERA_ACCESS_TOKEN` | Your Seqera Platform personal access token |
-| `SEQERA_COMPUTE_ENV_ID` | Compute environment ID (if different from default) |
-| `SEQERA_WORK_DIR` | S3 work directory (if different from default) |
+4. Click **Add** — the session builds and opens the Prefect UI automatically
 
-#### 2. Start the deployment server
+#### 2. Submit a run
 
-Open a terminal in JupyterLab:
-
-```bash
-cd /workspace/neoantigen-prefect/.seqera
-
-nohup python serve_flow.py > prefect_server.log 2>&1 &
-echo "Server PID: $!"
-```
-
-`serve_flow.py` starts a Prefect flow server and registers the `neoantigen-prediction` deployment. The server must keep running for the duration of your pipeline runs — `nohup` keeps it alive if your browser tab disconnects.
-
-#### 3. Trigger a run from the Prefect UI
-
-1. Open the Prefect UI (the URL is printed in `prefect_server.log` on startup)
-2. Navigate to **Deployments → neoantigen-prediction**
-3. Click **Run** and fill in the form:
+1. Click the **Deployments** tab
+2. Select **neoantigen-prediction**
+3. Click **Quick run** and fill in the parameters:
    - `patient_id` — e.g. `PID262622`
    - `wes_samplesheet_csv` — S3 URI or inline CSV (e.g. `s3://bucket/samplesheets/PID262622_wes.csv`)
    - `hlatyping_samplesheet_csv` — S3 URI or inline CSV
@@ -301,7 +287,7 @@ echo "Server PID: $!"
    - `sex` — `XX` or `XY` (default: `XX`)
    - `tumor_sample_name` — defaults to `{patient_id}_T`
    - `normal_sample_name` — defaults to `{patient_id}_N`
-4. Click **Submit** — the Prefect UI shows live task status as the flow runs
+4. Click **Run** — the Prefect UI shows live task status as the flow progresses
 
 Samplesheet parameters accept either an S3 URI (content is fetched automatically) or raw CSV text pasted directly into the form field.
 
