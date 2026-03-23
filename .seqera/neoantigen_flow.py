@@ -298,17 +298,26 @@ def neoantigen_flow(
     # ── Step 6: PureCN (waits for sarek only) ──────────────────────────────
     # Runs in parallel with steps 4 and 5.
 
+    # PureCN's CNVkit → seg conversion strips the chr prefix, so the seg file ends
+    # up with numeric chromosome names (1, 2, ...) while the Mutect2 VCF uses
+    # chr-prefixed names (chr1, chr2, ...). PureCN errors with "Segmentation and
+    # VCF do not overlap" when these don't match. Strip chr from the VCF in the
+    # pre-run script so both inputs use the same naming convention.
+    _orig_vcf_s3 = sarek_mutect2_filtered_vcf(outdir('sarek'), sample, normal)
+    _purecn_vcf_s3 = _orig_vcf_s3.replace(".vcf.gz", ".nochr.vcf.gz")
+
     purecn_ss_csv = (
         "sample_id,tumor_cns,tumor_cnr,vcf\n"
         f"{sample},"
         f"{sarek_cnvkit_cns(outdir('sarek'), sample, normal)},"
         f"{sarek_cnvkit_cnr(outdir('sarek'), sample, normal)},"
-        f"{sarek_mutect2_filtered_vcf(outdir('sarek'), sample, normal)}"
+        f"{_purecn_vcf_s3}"
     )
 
     purecn_pre_run = (
         _upload_script(purecn_ss_csv, purecn_ss_s3)
         + f"\ncurl -sL '{_PURECN_SNP_BLACKLIST_URL}' | aws s3 cp - '{purecn_blacklist_s3}'"
+        + f"\naws s3 cp '{_orig_vcf_s3}' - | zcat | sed 's/^chr//' | gzip | aws s3 cp - '{_purecn_vcf_s3}'"
     )
 
     purecn_future = run_pipeline.submit(
