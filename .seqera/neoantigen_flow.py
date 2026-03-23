@@ -324,10 +324,6 @@ def neoantigen_flow(
         },
         pre_run_script=purecn_pre_run,
         revision="main",  # stable-hg38 branch has a bug causing "Segmentation and VCF do not overlap"
-        # Fusion cold-lookup regression: see README.md § "Fusion + pipeline chaining"
-        config_text_extra=(
-            "process { withName: 'CNS_TO_SEG' { stageInMode = 'copy' } }\n"
-        ),
         resume=inputs.resume_ids.get("PureCN"),
         wait_for=[sarek_future],
     )
