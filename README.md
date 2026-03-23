@@ -244,6 +244,24 @@ uv run pytest tests/ -v
 
 ---
 
+## Known Issues
+
+### Fusion + pipeline chaining (for Seqera engineering)
+
+**Symptom:** The first process of a downstream pipeline (`CNS_TO_SEG` in PureCN, `SPLIT_TRANSCRIPT_COUNTS` in vcf-expression-annotator) fails with `FileNotFoundError` on an input file that exists in S3.
+
+**Root cause:** When Fusion resolves a cross-pipeline input via a symlink (e.g. `ln -s /fusion/s3/bucket/sarek-output/file.cns file.cns`), it calls `PopulateDirectory` which does an S3 LIST on the target path with a trailing slash. For a file (not a directory prefix), this returns 0 results. A prior Fusion version recovered by falling back to a direct byte-range GET on the exact key (visible in the Fusion log as a `prefetching` → `download start` sequence). The current version does not — it returns ENOENT and the process fails.
+
+This is specific to the first process of a downstream pipeline because:
+- Files produced *within* the same pipeline run are already in Fusion's local write cache and are found without an S3 lookup.
+- Files produced by a *different* pipeline run exist only in S3, requiring a cold lookup that hits the broken code path.
+
+**Workaround (current):** `stageInMode = 'copy'` for the affected process via `config_text_extra` in `neoantigen_flow.py`. This makes Nextflow physically copy the input bytes into the task work directory (via direct S3 on the head node) instead of creating a Fusion symlink, so Fusion finds the file via a normal work-dir listing rather than cross-directory symlink resolution.
+
+**Confirmed by:** Comparing `.fusion.log` between a working run (old Fusion version — has `prefetching` entry after `PopulateDirectory children=0`) and a failing run (new Fusion version — terminates after `PopulateDirectory children=0` with no fallback).
+
+---
+
 ## Related Repositories
 
 | Repo | Description |
