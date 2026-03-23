@@ -53,9 +53,9 @@ Three platform features were particularly important for this workflow:
 
 - **Wave** resolves container dependencies on demand from conda and bioconda channels, building and caching them automatically. Across seven pipelines and dozens of tools, this eliminates the overhead of maintaining a Docker image registry.
 - **Fusion** lets pipelines read and write directly from cloud object storage — S3, GCS, Azure Blob — as a local filesystem, without staging data to intermediate volumes. For a workflow processing gigabytes of sequencing data per patient, this meaningfully reduces both cost and instance requirements regardless of which cloud you are on.
-- **The API** is the nuts and bolts. Every operation in the UI is available as a REST call: launching pipelines, polling status, retrieving logs, fetching the session context needed to resume a failed run. Executions are driven by code, not clicks. Parameters are version-controlled, runs are auditable, and failures recover without manual intervention. 
+- **Built-in traceability** means you get a complete audit trail without any extra instrumentation. Every pipeline run is recorded by Seqera Platform automatically: software versions pinned to the exact commit, all parameters, per-task resource utilization, cost, and full logs. When something fails, the cause is immediately visible in the UI. When you need to reproduce a result months later, everything required is already captured. The REST API makes all of this programmable — launches driven by code, not clicks, with automatic failure recovery via Nextflow's `-resume` — but the traceability exists regardless of how you run pipelines.
 
-**A thin Python layer coordinates across pipelines.** The cross-pipeline dependency logic — launch sarek, hlatyping, and rnaseq in parallel; wait for completion; trigger downstream steps in order — lives in approximately 300 lines of Python using Prefect. It is not managing compute. It is not monitoring pipeline internals. It calls the Seqera Platform API: launch this pipeline, wait until it completes, then launch the next one. The entire orchestration layer is just structured API calls.
+**A thin Python layer coordinates across pipelines.** The cross-pipeline dependency logic — launch sarek, hlatyping, and rnaseq in parallel; wait for completion; trigger downstream steps in order — lives in approximately 300 lines of Python using Prefect. It is not managing compute. It is not monitoring pipeline internals. It launches pipelines via the Seqera Platform API, waits for completion, and moves to the next step. The orchestration logic is straightforward; the platform handles everything underneath.
 
 The result is a single command that processes a patient end-to-end based on a couple of samplesheets:
 
@@ -71,17 +71,17 @@ python run_flow.py \
 
 Failure recovery is handled cleanly. When a Prefect task fails, it captures the Seqera workflow ID. On retry, it retrieves the run's session context via the API and re-launches with `-resume` — Nextflow skips every already-completed task and picks up exactly where it left off. No manual intervention. No discarded compute.
 
-**Seqera Data Studios is where the Prefect flow actually runs.** Studios provisions a persistent VM — pre-configured with the repo, dependencies, and environment — directly within the Seqera workspace. There is no separate server to maintain, no local machine that needs to stay on, and no external scheduler to configure. You open a terminal in a studio session, provide your Seqera Platform access token, and run the Prefect flow. Since the VM persists independently of your browser session, the Prefect polling loop runs in the background for hours without any connection required. Reconnect at any time to check progress:
+**Seqera Data Studios hosts the orchestration layer.** We ship a ready-to-use Prefect Studio image as part of this repo — you do not need to build anything. The `.seqera/` directory contains the Studio definition (`studio-config.yaml`) and a `serve_flow.py` entrypoint that registers your flow with the Prefect server and exposes it in the UI. When the Studio boots, the Prefect UI is immediately available and your flow appears as a deployable run target.
+
+To adapt it for your own flow, you only need to touch two files in `.seqera/`:
 
 ```
-(base) root@ip-172-31-33-17:/workspace# tail neoantigen_PID001.log
-13:04:40 | INFO | [PureCN] status=RUNNING
-13:04:50 | INFO | [vcf-expression-annotator] status=RUNNING
-13:08:50 | INFO | 'vcf-expression-annotator' SUCCEEDED (run otLlfd5MTXRFP)
-13:08:58 | INFO | Launching 'nf-core/epitopeprediction' ... Run launched: wkVLdnGo4CODR
+.seqera/
+├── studio-config.yaml     # Studio type definition — image, compute, env vars
+└── serve_flow.py          # wraps your @flow and calls flow.serve() on startup
 ```
 
-It is a Seqera-native execution environment for the orchestration layer, sitting alongside the pipelines it is coordinating.
+Replace the flow import in `serve_flow.py` with your own `@flow`-decorated function, add any parameters you want exposed in the UI, and update `studio-config.yaml` with any environment variables your flow needs. Everything else — the container, the Prefect server, the UI — is already handled. No external scheduler, no separate server.
 
 ```mermaid
 flowchart TB
@@ -158,3 +158,18 @@ What we are less flexible about is the platform layer. Seqera Platform's API is 
 The API gives you all of that out of the box, across any compute backend — AWS, GCP, Azure, SLURM, Kubernetes. You configure a compute environment once; after that, the orchestration code doesn't change regardless of where it runs, and launching a new pipeline for a new patient is a single API call. That is what makes it practical to operate a multi-pipeline genomics workflow with a small team.
 
 ---
+
+## Build Your Own
+
+The repo is open source — clone it, break it, adapt it to your own pipelines.
+
+The core pattern isn't specific to neoantigen prediction. If you have a workflow that chains multiple Nextflow pipelines together and you're tired of babysitting manual handoffs, this is the same problem we solved here. Swap in your own pipelines, point it at your own compute environment, and the dependency management and failure recovery just work.
+
+Getting started is pretty straightforward:
+
+1. **Clone the repo** and skim the README. `config.py` is where your workspace ID and pipeline IDs go; `.seqera/` has everything for the Studio.
+2. **Set up your Seqera workspace.** Add your pipelines, configure a compute environment, and you're most of the way there. AWS Batch users get Fusion and Wave for free.
+3. **Edit `neoantigen_flow.py` and `tasks.py`.** These two files are the whole DAG — what runs, in what order, with what parameters. They're not complicated.
+4. **Run it.** `python run_flow.py` and watch the Prefect UI and Seqera Platform light up.
+
+The tooling to build a serious neoantigen pipeline exists today — nf-core modules, Seqera Platform, ~300 lines of Python. If you're working in this space, there's no reason to start from scratch. Build something better. We want to see it.
