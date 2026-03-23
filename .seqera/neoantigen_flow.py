@@ -324,6 +324,10 @@ def neoantigen_flow(
         },
         pre_run_script=purecn_pre_run,
         revision="main",  # stable-hg38 branch has a bug causing "Segmentation and VCF do not overlap"
+        # Fusion can't resolve cross-directory symlinks for sarek outputs (.cns/.cnr) —
+        # PopulateDirectory uses S3 LIST (not HEAD) and returns 0 children for file paths.
+        # Disable Fusion so Nextflow stages inputs via standard S3 download instead.
+        config_text_extra="fusion.enabled = false\n",
         resume=inputs.resume_ids.get("PureCN"),
         wait_for=[sarek_future],
     )
